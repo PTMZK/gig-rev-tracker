@@ -25,6 +25,7 @@ body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
 <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
@@ -81,6 +82,13 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator{filter:invert(0.
 `;
 
 const CACHE_KEY = 'gig_tracker_v3';
+const SYNC_QUEUE_KEY = 'gig_tracker_sync_queue_v1';
+const CLIENT_ID = '184926883313-t7ambne9kl8the68is6lc228ao5ts9o8.apps.googleusercontent.com';
+const SHEET_ID = '13Vg1X3342Lk2qfAb-KzUo60DQv5TSlDNtOA9t5b-8wQ';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+const ENTRIES_TAB = 'Entries';
+const SETTINGS_TAB = 'Settings';
+const COLS = ['id','kind','amount','startTime','endTime','station','blockType','freebie','platform','distanceMi','musicType','venue','status','expenseType','notes','createdAt','updatedAt'];
 const DEFAULTS = { monthlyTarget:6400, weekdayTarget:200, weekendTarget:300, weekStartsOn:0, defaultStation:'SJA1' };
 const DPLAT = [{id:'uber',label:'Uber Eats'},{id:'doordash',label:'DoorDash'},{id:'grubhub',label:'GrubHub'},{id:'other_delivery',label:'Other Delivery'}];
 const MTYPE = [{id:'performance',label:'Performance'},{id:'teaching',label:'Teaching'},{id:'recording',label:'Recording'},{id:'other_music',label:'Other'}];
@@ -96,6 +104,158 @@ async function loadCache(){
   }catch{ return {entries:[],settings:DEFAULTS}; }
 }
 async function saveCache(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); return true; }catch{ return false; } }
+function loadQueue(){ try{ const r=localStorage.getItem(SYNC_QUEUE_KEY); return r?JSON.parse(r):[]; }catch{ return []; } }
+function saveQueue(q){ try{ localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(q)); }catch{} }
+
+// ---------- Google Identity Services + Sheets API ----------
+let tokenClient = null;
+let accessToken = null;
+let tokenExpiry = 0;
+
+function waitForGIS(){
+  return new Promise((resolve) => {
+    if(window.google && window.google.accounts && window.google.accounts.oauth2){ resolve(); return; }
+    const id = setInterval(()=>{ if(window.google && window.google.accounts && window.google.accounts.oauth2){ clearInterval(id); resolve(); } }, 100);
+    setTimeout(()=>{ clearInterval(id); resolve(); }, 10000); // give up after 10s
+  });
+}
+async function ensureTokenClient(){
+  if(tokenClient) return;
+  await waitForGIS();
+  if(!window.google || !window.google.accounts){ throw new Error('Google Identity Services failed to load'); }
+  tokenClient = window.google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: () => {} // overridden per-request
+  });
+}
+async function requestToken(interactive){
+  await ensureTokenClient();
+  return new Promise((resolve, reject) => {
+    tokenClient.callback = (resp) => {
+      if(resp.error){ reject(new Error(resp.error_description || resp.error)); return; }
+      accessToken = resp.access_token;
+      tokenExpiry = Date.now() + ((resp.expires_in||3600) * 1000);
+      resolve(resp.access_token);
+    };
+    try { tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' }); }
+    catch(e) { reject(e); }
+  });
+}
+async function getValidToken(){
+  if(accessToken && Date.now() < tokenExpiry - 60000) return accessToken;
+  return await requestToken(false);
+}
+function isSignedIn(){ return !!accessToken && Date.now() < tokenExpiry - 5000; }
+function signOut(){ accessToken = null; tokenExpiry = 0; }
+
+async function sheetsCall(method, path, body){
+  const token = await getValidToken();
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}${path}`, {
+    method,
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if(r.status === 401){ accessToken=null; throw new Error('Auth expired'); }
+  if(r.status === 403){ throw new Error('Permission denied — check that the signed-in account has edit access to the Sheet'); }
+  if(!r.ok){ const t = await r.text(); throw new Error(`Sheets API ${r.status}: ${t.slice(0,200)}`); }
+  return r.json();
+}
+
+async function ensureStructure(){
+  const meta = await sheetsCall('GET', '?includeGridData=false');
+  const tabs = (meta.sheets||[]).map(s => s.properties.title);
+  const requests = [];
+  if(!tabs.includes(ENTRIES_TAB)) requests.push({ addSheet: { properties: { title: ENTRIES_TAB } } });
+  if(!tabs.includes(SETTINGS_TAB)) requests.push({ addSheet: { properties: { title: SETTINGS_TAB } } });
+  if(requests.length) await sheetsCall('POST', ':batchUpdate', { requests });
+  // Write headers if missing
+  const eHeads = await sheetsCall('GET', `/values/${ENTRIES_TAB}!A1:Q1`);
+  if(!eHeads.values || !eHeads.values[0] || eHeads.values[0].length === 0){
+    await sheetsCall('PUT', `/values/${ENTRIES_TAB}!A1:Q1?valueInputOption=RAW`, { values: [COLS] });
+  }
+  const sHeads = await sheetsCall('GET', `/values/${SETTINGS_TAB}!A1:B1`);
+  if(!sHeads.values || !sHeads.values[0] || sHeads.values[0].length === 0){
+    await sheetsCall('PUT', `/values/${SETTINGS_TAB}!A1:B1?valueInputOption=RAW`, { values: [['key','value']] });
+  }
+}
+
+function entryToRow(e){
+  return COLS.map(c => {
+    const v = e[c];
+    if(v === undefined || v === null) return '';
+    if(typeof v === 'boolean') return v ? 'yes' : '';
+    return v;
+  });
+}
+function rowToEntry(row, headers){
+  const e = {};
+  headers.forEach((h, i) => {
+    const v = row[i];
+    if(v === '' || v == null) return;
+    if(h === 'amount' || h === 'distanceMi'){ const n = parseFloat(v); if(!isNaN(n)) e[h] = n; }
+    else if(h === 'freebie') e[h] = v === 'yes' || v === true || v === 'TRUE';
+    else e[h] = v;
+  });
+  return e;
+}
+
+async function sheetsListAll(){
+  const [er, sr] = await Promise.all([
+    sheetsCall('GET', `/values/${ENTRIES_TAB}!A:Q`),
+    sheetsCall('GET', `/values/${SETTINGS_TAB}!A:B`),
+  ]);
+  const entries = [];
+  if(er.values && er.values.length > 1){
+    const headers = er.values[0];
+    for(let i=1; i<er.values.length; i++){
+      const row = er.values[i];
+      if(!row[0]) continue;
+      entries.push(rowToEntry(row, headers));
+    }
+  }
+  const settings = {};
+  if(sr.values && sr.values.length > 1){
+    for(let i=1; i<sr.values.length; i++){
+      const row = sr.values[i];
+      if(!row[0]) continue;
+      let v = row[1];
+      if(typeof v === 'string' && v !== '' && !isNaN(Number(v))) v = Number(v);
+      settings[row[0]] = v;
+    }
+  }
+  return { entries, settings };
+}
+
+async function sheetsAppend(entry){
+  const e = { ...entry, createdAt: entry.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+  await sheetsCall('POST', `/values/${ENTRIES_TAB}!A:Q:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, { values: [entryToRow(e)] });
+}
+async function findRowByID(id){
+  const r = await sheetsCall('GET', `/values/${ENTRIES_TAB}!A:A`);
+  if(!r.values) return -1;
+  for(let i=1; i<r.values.length; i++){ if(r.values[i][0] === id) return i+1; }
+  return -1;
+}
+async function sheetsUpdate(entry){
+  const rowNum = await findRowByID(entry.id);
+  if(rowNum < 0) return await sheetsAppend(entry); // not in sheet? append
+  const e = { ...entry, updatedAt: new Date().toISOString() };
+  await sheetsCall('PUT', `/values/${ENTRIES_TAB}!A${rowNum}:Q${rowNum}?valueInputOption=RAW`, { values: [entryToRow(e)] });
+}
+async function sheetsDelete(id){
+  const rowNum = await findRowByID(id);
+  if(rowNum < 0) return;
+  const meta = await sheetsCall('GET', '?includeGridData=false');
+  const sheet = (meta.sheets||[]).find(s => s.properties.title === ENTRIES_TAB);
+  if(!sheet) return;
+  await sheetsCall('POST', ':batchUpdate', { requests: [{ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: 'ROWS', startIndex: rowNum-1, endIndex: rowNum } } }] });
+}
+async function sheetsWriteSettings(settings){
+  await sheetsCall('POST', `/values/${SETTINGS_TAB}!A2:B:clear`, {});
+  const rows = Object.entries(settings).map(([k,v]) => [k, String(v)]);
+  if(rows.length) await sheetsCall('PUT', `/values/${SETTINGS_TAB}!A2:B${1+rows.length}?valueInputOption=RAW`, { values: rows });
+}
 
 // ---------- Format helpers ----------
 const fmt$ = n => {
@@ -852,7 +1012,7 @@ const TrendsView = ({entries}) => {
 };
 
 // ---------- Settings ----------
-const SettingsModal = ({settings, entries, onUpdate, onImportJSON, onClose, onClearAll}) => {
+const SettingsModal = ({settings, entries, syncState, onSignIn, onRefresh, onUpdate, onImportJSON, onClose, onClearAll}) => {
   const [L, setL] = useState(settings);
   const fileRef = useRef();
 
@@ -926,6 +1086,28 @@ const SettingsModal = ({settings, entries, onUpdate, onImportJSON, onClose, onCl
         <button onClick={onClose} style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer'}}><X size={24}/></button>
       </div>
 
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:10}}>Google Sheets sync</div>
+      {syncState && syncState.signedIn ? (
+        <Card style={{padding:14, marginBottom:14}}>
+          <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:10}}>
+            <span style={{width:10, height:10, borderRadius:5, background: syncState.error?C.exp : syncState.syncing?C.pace : syncState.queued>0?C.warn : C.earn}}/>
+            <span style={{fontSize:14, color:C.text, fontWeight:600}}>
+              {syncState.error ? 'Sync error' : syncState.syncing ? 'Syncing…' : syncState.queued>0 ? `${syncState.queued} pending` : 'Synced to Google Sheets'}
+            </span>
+          </div>
+          <div style={{fontSize:12, color:C.mid, marginBottom:10}}>Signed in. Every entry pushes to your Sheet automatically. Tap refresh to pull updates from the Sheet.</div>
+          {syncState.error && <div style={{padding:'8px 10px', background:C.exp+'15', border:`1px solid ${C.exp}55`, borderRadius:6, fontSize:11, color:C.exp, marginBottom:10}}>{syncState.error}</div>}
+          <Btn variant="secondary" onClick={onRefresh} style={{width:'100%'}} disabled={syncState.syncing}>
+            <RefreshCw size={14} className={syncState.syncing?'spin':''} style={{marginRight:8, verticalAlign:'middle'}}/>Refresh from Sheet
+          </Btn>
+        </Card>
+      ) : (
+        <Card style={{padding:14, marginBottom:14}}>
+          <div style={{fontSize:13, color:C.mid, marginBottom:12, lineHeight:1.5}}>Sign in with Google to sync entries to your Sheet across devices and share with your wife.</div>
+          <Btn onClick={onSignIn} style={{width:'100%', background:C.pace, color:C.bg}}>Sign in with Google</Btn>
+        </Card>
+      )}
+
       <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', margin:'18px 0 10px'}}>Targets</div>
       <Input label="Monthly combined target" type="number" value={L.monthlyTarget} onChange={v=>setL({...L, monthlyTarget:v})} prefix="$"/>
       <div style={{fontSize:11, color:C.muted, marginTop:-10, marginBottom:14}}>Weekly target = monthly ÷ 4 = ${(parseFloat(L.monthlyTarget||0)/4).toFixed(0)}</div>
@@ -979,17 +1161,32 @@ const TabBar = ({tab, onChange, onAdd}) => {
   </div>;
 };
 
-const Header = ({onSettings}) => (
-  <div style={{position:'sticky', top:0, zIndex:40, background:C.bg+'F0', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', borderBottom:`1px solid ${C.bord}`, paddingTop:'env(safe-area-inset-top)'}}>
+const Header = ({onSettings, syncState, onSignIn, onRefresh}) => {
+  const {signedIn, syncing, error, queued} = syncState;
+  let dotColor = C.muted, label = 'Local';
+  if(signedIn){
+    if(error){ dotColor = C.exp; label = 'Sync error'; }
+    else if(syncing){ dotColor = C.pace; label = 'Syncing'; }
+    else if(queued>0){ dotColor = C.warn; label = `${queued} pending`; }
+    else { dotColor = C.earn; label = 'Synced'; }
+  }
+  return <div style={{position:'sticky', top:0, zIndex:40, background:C.bg+'F0', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', borderBottom:`1px solid ${C.bord}`, paddingTop:'env(safe-area-inset-top)'}}>
     <div style={{maxWidth:500, margin:'0 auto', padding:'14px 16px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
       <div style={{display:'flex', alignItems:'baseline', gap:8}}>
         <div style={{fontSize:18, fontWeight:800, letterSpacing:-0.5, color:C.text}}>GIG<span style={{color:C.earn}}>·</span>OPS</div>
-        <div style={{fontSize:10, color:C.muted, fontWeight:600, letterSpacing:1}}>v3.0</div>
+        <div style={{fontSize:10, color:C.muted, fontWeight:600, letterSpacing:1}}>v4.0</div>
       </div>
-      <button onClick={onSettings} style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer', padding:6}}><SettingsIcon size={22}/></button>
+      <div style={{display:'flex', alignItems:'center', gap:2}}>
+        {!signedIn && <button onClick={onSignIn} style={{background:C.pace, color:C.bg, border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:700, cursor:'pointer', marginRight:4}}>SIGN IN</button>}
+        {signedIn && <button onClick={onRefresh} title="Refresh from Sheet" style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer', padding:6}}><RefreshCw size={16} className={syncing?'spin':''}/></button>}
+        <button onClick={onSettings} title={label} style={{background:'transparent', border:'none', cursor:'pointer', padding:6, display:'flex', alignItems:'center', gap:6}}>
+          <span style={{width:8, height:8, borderRadius:4, background:dotColor, display:'inline-block'}}/>
+          <SettingsIcon size={22} style={{color:C.mid}}/>
+        </button>
+      </div>
     </div>
-  </div>
-);
+  </div>;
+};
 
 // ---------- Main App ----------
 const App = () => {
@@ -1002,34 +1199,149 @@ const App = () => {
   const [editing, setEditing] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
+  // Sync state
+  const [signedIn, setSignedIn] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const queueRef = useRef([]);
+  useEffect(()=>{ queueRef.current = queue; saveQueue(queue); }, [queue]);
 
-  // Initial load
+  // Initial load + attempt silent sign-in
   useEffect(()=>{(async()=>{
     const cache = await loadCache();
     setData(cache);
+    setQueue(loadQueue());
     setLoaded(true);
+    // Attempt silent sign-in
+    try {
+      setSyncing(true);
+      await requestToken(false); // non-interactive
+      setSignedIn(true);
+      await pullFromSheet();
+      setSyncError(null);
+    } catch(e){
+      // Silent sign-in failed — user needs to click Sign In. Stay in local-only mode.
+      setSignedIn(false);
+    } finally { setSyncing(false); }
   })()}, []);
 
   // Persist whenever data changes
   useEffect(()=>{ if(loaded) saveCache(data); }, [data, loaded]);
 
+  // Pull from Sheet: merge entries (Sheet wins on conflict by updatedAt), replace settings from Sheet
+  const pullFromSheet = useCallback(async () => {
+    await ensureStructure();
+    const remote = await sheetsListAll();
+    setData(d => {
+      // Merge: union by id, prefer the one with later updatedAt
+      const map = new Map();
+      d.entries.forEach(e => map.set(e.id, e));
+      remote.entries.forEach(re => {
+        const local = map.get(re.id);
+        if(!local) { map.set(re.id, re); return; }
+        const lu = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+        const ru = re.updatedAt ? new Date(re.updatedAt).getTime() : 0;
+        map.set(re.id, ru >= lu ? re : local);
+      });
+      const mergedEntries = Array.from(map.values());
+      const mergedSettings = Object.keys(remote.settings).length>0 ? {...DEFAULTS, ...remote.settings} : d.settings;
+      return { entries: mergedEntries, settings: mergedSettings };
+    });
+  }, []);
+
+  // Push any entry not yet in Sheet (used to flush local-only entries after first sign-in)
+  const flushLocalOnly = useCallback(async () => {
+    // For simplicity, we rely on queue draining; nothing extra here.
+  }, []);
+
+  // Queue management
+  const enqueue = useCallback((op) => {
+    const next = [...queueRef.current, {...op, ts: Date.now()}];
+    setQueue(next);
+    queueRef.current = next;
+    drainQueue();
+  }, []);
+  const drainQueue = useCallback(async () => {
+    if(!signedIn) return;
+    if(queueRef.current.length === 0) return;
+    setSyncing(true); setSyncError(null);
+    try {
+      let q = [...queueRef.current];
+      while(q.length > 0){
+        const op = q[0];
+        try {
+          if(op.type === 'add') await sheetsAppend(op.entry);
+          else if(op.type === 'update') await sheetsUpdate(op.entry);
+          else if(op.type === 'delete') await sheetsDelete(op.id);
+          else if(op.type === 'settings') await sheetsWriteSettings(op.settings);
+        } catch(e) {
+          // If 401, try re-auth once
+          if(String(e.message).includes('Auth expired')){
+            try { await requestToken(false); continue; }
+            catch { setSignedIn(false); throw e; }
+          }
+          throw e;
+        }
+        q = q.slice(1);
+        setQueue(q); queueRef.current = q;
+      }
+    } catch(e) {
+      setSyncError(String(e.message||e));
+    } finally { setSyncing(false); }
+  }, [signedIn]);
+
+  // Retry queue drain when signedIn flips to true
+  useEffect(()=>{ if(signedIn) drainQueue(); }, [signedIn, drainQueue]);
+
+  // Mutations
   const addEntry = (e) => {
-    const entry = {...e, id: e.id || newId()};
+    const now = new Date().toISOString();
+    const entry = {...e, id: e.id || newId(), createdAt: now, updatedAt: now};
     setData(d => ({...d, entries: [...d.entries, entry]}));
+    if(signedIn) enqueue({type:'add', entry});
   };
   const updateEntry = (id, u) => {
-    setData(d => ({...d, entries: d.entries.map(e => e.id===id ? {...e, ...u, id} : e)}));
+    const now = new Date().toISOString();
+    let updated;
+    setData(d => ({...d, entries: d.entries.map(e => { if(e.id===id){ updated = {...e, ...u, id, updatedAt:now}; return updated; } return e; })}));
+    if(updated && signedIn) enqueue({type:'update', entry: updated});
   };
   const deleteEntry = (id) => {
     setData(d => ({...d, entries: d.entries.filter(e => e.id !== id)}));
     setEditing(null);
+    if(signedIn) enqueue({type:'delete', id});
   };
   const updateSettings = (s) => {
-    setData(d => ({...d, settings: {...d.settings, ...s}}));
+    let next;
+    setData(d => { next = {...d.settings, ...s}; return {...d, settings: next}; });
+    if(signedIn) enqueue({type:'settings', settings: next});
   };
   const handleImportJSON = (entries, settings) => {
     setData({entries, settings});
+    if(signedIn){
+      // Queue full re-sync: settings, then each entry as add (sheet may have orphans, but for simplicity we just upsert)
+      entries.forEach(entry => enqueue({type:'update', entry}));
+      enqueue({type:'settings', settings});
+    }
     alert('Imported ' + entries.length + ' entries.');
+  };
+
+  // Sign-in
+  const handleSignIn = async () => {
+    setSyncing(true); setSyncError(null);
+    try {
+      await requestToken(true); // interactive
+      setSignedIn(true);
+      await pullFromSheet();
+    } catch(e) {
+      setSyncError(String(e.message||e));
+    } finally { setSyncing(false); }
+  };
+  const handleRefresh = async () => {
+    if(!signedIn) return;
+    setSyncing(true); setSyncError(null);
+    try { await pullFromSheet(); } catch(e){ setSyncError(String(e.message||e)); } finally { setSyncing(false); }
   };
 
   const handleAddMusicForDay = (date) => { setPrefillDate(date); setNewKind('music'); };
@@ -1037,12 +1349,15 @@ const App = () => {
   const handleMainAdd = () => { setPrefillDate(null); setShowAdd(true); };
   const closeForm = () => { setNewKind(null); setPrefillDate(null); };
 
+  const syncState = { signedIn, syncing, error: syncError, queued: queue.length };
+
   if(!loaded) return <><style>{FONT}</style><div style={{background:C.bg, color:C.mid, minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'"DM Sans",sans-serif'}}>Loading…</div></>;
 
   return <>
     <style>{FONT}</style>
     <div style={{background:C.bg, color:C.text, minHeight:'100vh', fontFamily:'"DM Sans",system-ui,sans-serif'}}>
-      <Header onSettings={()=>setShowSettings(true)}/>
+      <Header onSettings={()=>setShowSettings(true)} syncState={syncState} onSignIn={handleSignIn} onRefresh={handleRefresh}/>
+      {syncError && <div style={{background:C.exp+'22', borderBottom:`1px solid ${C.exp}55`, color:C.exp, padding:'10px 16px', fontSize:12, textAlign:'center'}}>Sync error: {syncError}</div>}
       <main style={{paddingBottom:100, maxWidth:500, margin:'0 auto'}}>
         {tab==='today' && <TodayView entries={data.entries} settings={data.settings} onEdit={setEditing}/>}
         {tab==='week' && <WeekView entries={data.entries} settings={data.settings} onEdit={setEditing} onAddMusic={handleAddMusicForDay}/>}
@@ -1054,7 +1369,7 @@ const App = () => {
       {showAdd && <QuickAddSheet dateContext={prefillDate} onChoose={k=>{setShowAdd(false); setNewKind(k);}} onClose={()=>{setShowAdd(false); if(!selectedDay) setPrefillDate(null);}}/>}
       {newKind && <EntryForm kind={newKind} settings={data.settings} prefillDate={prefillDate} onSave={e=>{addEntry(e); closeForm();}} onClose={closeForm}/>}
       {editing && <EntryForm kind={editing.kind} existing={editing} settings={data.settings} onSave={e=>{updateEntry(editing.id, e); setEditing(null);}} onClose={()=>setEditing(null)} onDelete={deleteEntry}/>}
-      {showSettings && <SettingsModal settings={data.settings} entries={data.entries} onUpdate={updateSettings} onImportJSON={handleImportJSON} onClearAll={()=>setData({entries:[], settings:DEFAULTS})} onClose={()=>setShowSettings(false)}/>}
+      {showSettings && <SettingsModal settings={data.settings} entries={data.entries} syncState={syncState} onSignIn={handleSignIn} onRefresh={handleRefresh} onUpdate={updateSettings} onImportJSON={handleImportJSON} onClearAll={()=>setData({entries:[], settings:DEFAULTS})} onClose={()=>setShowSettings(false)}/>}
     </div>
   </>;
 };
