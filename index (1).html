@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gig Ops">
+<meta name="theme-color" content="#0A0A0F">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230A0A0F'/%3E%3Ctext x='90' y='118' font-family='-apple-system,system-ui,sans-serif' font-size='80' font-weight='800' text-anchor='middle' fill='%2300E676'%3E$%3C/text%3E%3C/svg%3E">
+<title>Gig Tracker</title>
+<style>
+html, body { margin: 0; padding: 0; background: #0A0A0F; min-height: 100vh; overscroll-behavior: none; }
+#root { min-height: 100vh; }
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif; color: #A8A8B5; }
+.boot { display:flex; align-items:center; justify-content:center; min-height:100vh; flex-direction:column; gap:14px; }
+.boot .dot { width:10px; height:10px; border-radius:5px; background:#00E676; animation: bp 1.4s ease-in-out infinite; }
+@keyframes bp { 0%,100%{opacity:0.3} 50%{opacity:1} }
+</style>
+</head>
+<body>
+<div id="root"><div class="boot"><div class="dot"></div><div style="font-size:13px;letter-spacing:1px;font-weight:600">LOADING</div></div></div>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+const { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, LineChart, Line, PieChart, Pie, Cell, CartesianGrid } = Recharts;
+
+// Inline SVG icons (Lucide-style)
+const SVG = (p, paths) => React.createElement('svg', {viewBox:'0 0 24 24', width:p.size||20, height:p.size||20, fill:'none', stroke:'currentColor', strokeWidth:p.strokeWidth||2, strokeLinecap:'round', strokeLinejoin:'round', style:p.style, className:p.className}, paths.map((d,i)=>React.createElement('path',{key:i,d})));
+const Plus = p => SVG(p,['M12 5v14','M5 12h14']);
+const SettingsIcon = p => SVG(p,['M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z','M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z']);
+const X = p => SVG(p,['M18 6 6 18','M6 6l12 12']);
+const Trash2 = p => SVG(p,['M3 6h18','M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6','M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2','M10 11v6','M14 11v6']);
+const Download = p => SVG(p,['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4','M7 10l5 5 5-5','M12 15V3']);
+const Copy = p => SVG(p,['M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2','M15 3H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1z']);
+const TrendingUp = p => SVG(p,['M22 7 13.5 15.5 8.5 10.5 2 17','M16 7h6v6']);
+const Calendar = p => SVG(p,['M8 2v4','M16 2v4','M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8','M3 10h18','M17 14h6','M20 11v6']);
+const CalendarDays = p => SVG(p,['M8 2v4','M16 2v4','M21 14V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9','M3 10h18','M17 14h.01','M13 18h.01']);
+const Activity = p => SVG(p,['M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.24 2.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4 12H2']);
+const Home = p => SVG(p,['m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z','M9 22V12h6v10']);
+const Fuel = p => SVG(p,['M3 22h12','M4 9h10','M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18','M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2 2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5']);
+const Music = p => SVG(p,['M9 18V5l12-2v13','M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z','M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6z']);
+const Truck = p => SVG(p,['M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2','M15 18H9','M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14','M7 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z','M17 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z']);
+const ChevronRight = p => SVG(p,['m9 18 6-6-6-6']);
+const ChevronLeft = p => SVG(p,['m15 18-6-6 6-6']);
+const AlertCircle = p => SVG(p,['M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z','M12 8v4','M12 16h.01']);
+const Clock = p => SVG(p,['M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z','M12 6v6l4 2']);
+const Target = p => SVG(p,['M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z','M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z','M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z']);
+const RefreshCw = p => SVG(p,['M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8','M21 3v5h-5','M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16','M8 16H3v5']);
+const Upload = p => SVG(p,['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4','M17 8l-5-5-5 5','M12 3v12']);
+const CheckCircle2 = p => SVG(p,['M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z','m9 12 2 2 4-4']);
+
+const C = {
+  bg:'#0A0A0F', bgE:'#12121A', card:'#16161F', cardH:'#1C1C28',
+  border:'#252533', bord:'#1E1E2A',
+  text:'#F1F1F5', mid:'#A8A8B5', muted:'#62626F',
+  earn:'#00E676', music:'#C77DFF', exp:'#FF6B35',
+  pace:'#4DA8FF', flex:'#FFD60A', warn:'#FFB020'
+};
+
+const FONT = `
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+*{-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',system-ui,sans-serif}
+.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
+.nos::-webkit-scrollbar{display:none}.nos{scrollbar-width:none}
+@keyframes sU{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes fI{from{opacity:0}to{opacity:1}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.sU{animation:sU 0.25s ease-out}.fI{animation:fI 0.2s ease-out}
+.spin{animation:spin 1s linear infinite}.pulse{animation:pulse 1.5s ease-in-out infinite}
+input,select,textarea,button{font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none}
+input[type="datetime-local"]::-webkit-calendar-picker-indicator{filter:invert(0.7)}
+`;
+
+const CACHE_KEY = 'gig_tracker_v3';
+const SYNC_QUEUE_KEY = 'gig_tracker_sync_queue_v1';
+const CLIENT_ID = '184926883313-t7ambne9kl8the68is6lc228ao5ts9o8.apps.googleusercontent.com';
+const SHEET_ID = '13Vg1X3342Lk2qfAb-KzUo60DQv5TSlDNtOA9t5b-8wQ';
+const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+const ENTRIES_TAB = 'Entries';
+const SETTINGS_TAB = 'Settings';
+const COLS = ['id','kind','amount','startTime','endTime','station','blockType','freebie','platform','distanceMi','musicType','venue','status','expenseType','notes','createdAt','updatedAt'];
+const DEFAULTS = { monthlyTarget:6400, weekdayTarget:200, weekendTarget:300, weekStartsOn:0, defaultStation:'SJA1' };
+const DPLAT = [{id:'uber',label:'Uber Eats'},{id:'doordash',label:'DoorDash'},{id:'grubhub',label:'GrubHub'},{id:'other_delivery',label:'Other Delivery'}];
+const MTYPE = [{id:'performance',label:'Performance'},{id:'teaching',label:'Teaching'},{id:'recording',label:'Recording'},{id:'other_music',label:'Other'}];
+const ETYPE = [{id:'gas',label:'Gas'},{id:'tolls',label:'Tolls'},{id:'parking',label:'Parking'},{id:'maintenance',label:'Maintenance'},{id:'food',label:'Food'},{id:'other_expense',label:'Other'}];
+const STATIONS = ['SJA1','VJA1','Other'];
+const BLOCKS = ['Standard','Rush/Rapid','SSD','Other'];
+const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+// ---------- Storage helpers (localStorage) ----------
+async function loadCache(){
+  try{ const raw = localStorage.getItem(CACHE_KEY); if(!raw) return {entries:[],settings:DEFAULTS};
+    const p = JSON.parse(raw); return {entries:p.entries||[], settings:{...DEFAULTS,...(p.settings||{})}};
+  }catch{ return {entries:[],settings:DEFAULTS}; }
+}
+async function saveCache(d){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(d)); return true; }catch{ return false; } }
+function loadQueue(){ try{ const r=localStorage.getItem(SYNC_QUEUE_KEY); return r?JSON.parse(r):[]; }catch{ return []; } }
+function saveQueue(q){ try{ localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(q)); }catch{} }
+
+// ---------- Google Identity Services + Sheets API ----------
+let tokenClient = null;
+let accessToken = null;
+let tokenExpiry = 0;
+
+function waitForGIS(){
+  return new Promise((resolve) => {
+    if(window.google && window.google.accounts && window.google.accounts.oauth2){ resolve(); return; }
+    const id = setInterval(()=>{ if(window.google && window.google.accounts && window.google.accounts.oauth2){ clearInterval(id); resolve(); } }, 100);
+    setTimeout(()=>{ clearInterval(id); resolve(); }, 10000); // give up after 10s
+  });
+}
+async function ensureTokenClient(){
+  if(tokenClient) return;
+  await waitForGIS();
+  if(!window.google || !window.google.accounts){ throw new Error('Google Identity Services failed to load'); }
+  tokenClient = window.google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: () => {} // overridden per-request
+  });
+}
+async function requestToken(interactive){
+  await ensureTokenClient();
+  return new Promise((resolve, reject) => {
+    tokenClient.callback = (resp) => {
+      if(resp.error){ reject(new Error(resp.error_description || resp.error)); return; }
+      accessToken = resp.access_token;
+      tokenExpiry = Date.now() + ((resp.expires_in||3600) * 1000);
+      resolve(resp.access_token);
+    };
+    try { tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' }); }
+    catch(e) { reject(e); }
+  });
+}
+async function getValidToken(){
+  if(accessToken && Date.now() < tokenExpiry - 60000) return accessToken;
+  return await requestToken(false);
+}
+function isSignedIn(){ return !!accessToken && Date.now() < tokenExpiry - 5000; }
+function signOut(){ accessToken = null; tokenExpiry = 0; }
+
+async function sheetsCall(method, path, body){
+  const token = await getValidToken();
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}${path}`, {
+    method,
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if(r.status === 401){ accessToken=null; throw new Error('Auth expired'); }
+  if(r.status === 403){ throw new Error('Permission denied — check that the signed-in account has edit access to the Sheet'); }
+  if(!r.ok){ const t = await r.text(); throw new Error(`Sheets API ${r.status}: ${t.slice(0,200)}`); }
+  return r.json();
+}
+
+async function ensureStructure(){
+  const meta = await sheetsCall('GET', '?includeGridData=false');
+  const tabs = (meta.sheets||[]).map(s => s.properties.title);
+  const requests = [];
+  if(!tabs.includes(ENTRIES_TAB)) requests.push({ addSheet: { properties: { title: ENTRIES_TAB } } });
+  if(!tabs.includes(SETTINGS_TAB)) requests.push({ addSheet: { properties: { title: SETTINGS_TAB } } });
+  if(requests.length) await sheetsCall('POST', ':batchUpdate', { requests });
+  // Write headers if missing
+  const eHeads = await sheetsCall('GET', `/values/${ENTRIES_TAB}!A1:Q1`);
+  if(!eHeads.values || !eHeads.values[0] || eHeads.values[0].length === 0){
+    await sheetsCall('PUT', `/values/${ENTRIES_TAB}!A1:Q1?valueInputOption=RAW`, { values: [COLS] });
+  }
+  const sHeads = await sheetsCall('GET', `/values/${SETTINGS_TAB}!A1:B1`);
+  if(!sHeads.values || !sHeads.values[0] || sHeads.values[0].length === 0){
+    await sheetsCall('PUT', `/values/${SETTINGS_TAB}!A1:B1?valueInputOption=RAW`, { values: [['key','value']] });
+  }
+}
+
+function entryToRow(e){
+  return COLS.map(c => {
+    const v = e[c];
+    if(v === undefined || v === null) return '';
+    if(typeof v === 'boolean') return v ? 'yes' : '';
+    return v;
+  });
+}
+function rowToEntry(row, headers){
+  const e = {};
+  headers.forEach((h, i) => {
+    const v = row[i];
+    if(v === '' || v == null) return;
+    if(h === 'amount' || h === 'distanceMi'){ const n = parseFloat(v); if(!isNaN(n)) e[h] = n; }
+    else if(h === 'freebie') e[h] = v === 'yes' || v === true || v === 'TRUE';
+    else e[h] = v;
+  });
+  return e;
+}
+
+async function sheetsListAll(){
+  const [er, sr] = await Promise.all([
+    sheetsCall('GET', `/values/${ENTRIES_TAB}!A:Q`),
+    sheetsCall('GET', `/values/${SETTINGS_TAB}!A:B`),
+  ]);
+  const entries = [];
+  if(er.values && er.values.length > 1){
+    const headers = er.values[0];
+    for(let i=1; i<er.values.length; i++){
+      const row = er.values[i];
+      if(!row[0]) continue;
+      entries.push(rowToEntry(row, headers));
+    }
+  }
+  const settings = {};
+  if(sr.values && sr.values.length > 1){
+    for(let i=1; i<sr.values.length; i++){
+      const row = sr.values[i];
+      if(!row[0]) continue;
+      let v = row[1];
+      if(typeof v === 'string' && v !== '' && !isNaN(Number(v))) v = Number(v);
+      settings[row[0]] = v;
+    }
+  }
+  return { entries, settings };
+}
+
+async function sheetsAppend(entry){
+  const e = { ...entry, createdAt: entry.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+  await sheetsCall('POST', `/values/${ENTRIES_TAB}!A:Q:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, { values: [entryToRow(e)] });
+}
+async function findRowByID(id){
+  const r = await sheetsCall('GET', `/values/${ENTRIES_TAB}!A:A`);
+  if(!r.values) return -1;
+  for(let i=1; i<r.values.length; i++){ if(r.values[i][0] === id) return i+1; }
+  return -1;
+}
+async function sheetsUpdate(entry){
+  const rowNum = await findRowByID(entry.id);
+  if(rowNum < 0) return await sheetsAppend(entry); // not in sheet? append
+  const e = { ...entry, updatedAt: new Date().toISOString() };
+  await sheetsCall('PUT', `/values/${ENTRIES_TAB}!A${rowNum}:Q${rowNum}?valueInputOption=RAW`, { values: [entryToRow(e)] });
+}
+async function sheetsDelete(id){
+  const rowNum = await findRowByID(id);
+  if(rowNum < 0) return;
+  const meta = await sheetsCall('GET', '?includeGridData=false');
+  const sheet = (meta.sheets||[]).find(s => s.properties.title === ENTRIES_TAB);
+  if(!sheet) return;
+  await sheetsCall('POST', ':batchUpdate', { requests: [{ deleteDimension: { range: { sheetId: sheet.properties.sheetId, dimension: 'ROWS', startIndex: rowNum-1, endIndex: rowNum } } }] });
+}
+async function sheetsWriteSettings(settings){
+  await sheetsCall('POST', `/values/${SETTINGS_TAB}!A2:B:clear`, {});
+  const rows = Object.entries(settings).map(([k,v]) => [k, String(v)]);
+  if(rows.length) await sheetsCall('PUT', `/values/${SETTINGS_TAB}!A2:B${1+rows.length}?valueInputOption=RAW`, { values: rows });
+}
+
+// ---------- Format helpers ----------
+const fmt$ = n => {
+  if(n==null||isNaN(n))return '$0';
+  const v=Math.abs(n), s=v>=1000?v.toFixed(0):v.toFixed(2);
+  return (n<0?'-$':'$')+s.replace(/\B(?=(\d{3})+(?!\d))/g,',');
+};
+const fmt$s = n => n==null?'$0':Math.abs(n)>=1000?'$'+(n/1000).toFixed(1)+'k':'$'+Math.round(n);
+const sod = d => { const x=new Date(d); x.setHours(0,0,0,0); return x; };
+const sow = (d,w=0) => { const x=sod(d); const diff=(x.getDay()-w+7)%7; x.setDate(x.getDate()-diff); return x; };
+const som = d => { const x=sod(d); x.setDate(1); return x; };
+const sameDay = (a,b) => sod(a).getTime()===sod(b).getTime();
+const inRange = (date,start,end) => { const t=new Date(date).getTime(); return t>=start.getTime() && t<end.getTime(); };
+const fmtT = iso => new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+const fmtDTL = iso => { const d=new Date(iso), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+const getStart = e => e.startTime || e.timestamp;
+const getEnd = e => e.endTime || null;
+const getDur = e => {
+  if(e.endTime && (e.startTime || e.timestamp)){
+    const ms=new Date(e.endTime)-new Date(e.startTime||e.timestamp);
+    return Math.max(0, ms/60000);
+  }
+  return e.durationMin || null;
+};
+const fmtDur = m => {
+  if(!m||m<=0)return null;
+  if(m<60)return Math.round(m)+'m';
+  const h=Math.floor(m/60), mm=Math.round(m-h*60);
+  return mm>0?`${h}h ${mm}m`:`${h}h`;
+};
+const fmtTR = e => { const s=getStart(e), end=getEnd(e); return !end?fmtT(s):fmtT(s)+' – '+fmtT(end); };
+const rate = e => { const d=getDur(e); return (!d||d<1)?null:e.amount/(d/60); };
+const isEarn = e => e.kind==='flex'||e.kind==='delivery'||e.kind==='music';
+const isExp = e => e.kind==='expense';
+const isCount = e => isEarn(e) && e.status!=='booked';
+const isBookedMusic = e => e.kind==='music' && e.status==='booked';
+const sumEarn = es => es.filter(isCount).reduce((s,e)=>s+(e.amount||0),0);
+const sumBooked = es => es.filter(isBookedMusic).reduce((s,e)=>s+(e.amount||0),0);
+const sumExp = es => es.filter(isExp).reduce((s,e)=>s+(e.amount||0),0);
+const sumNet = es => sumEarn(es)-sumExp(es);
+const fRange = (es,s,e) => es.filter(x=>inRange(getStart(x),s,e));
+const dailyTgt = (date,s) => { const d=new Date(date).getDay(); return (d===0||d===6)?s.weekendTarget:s.weekdayTarget; };
+const isFutureDay = d => sod(d).getTime() > sod(new Date()).getTime();
+const newId = () => 'e_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);
+
+const planWeek = (entries, settings, now) => {
+  const wS = sow(now, settings.weekStartsOn);
+  const wE = new Date(wS); wE.setDate(wE.getDate()+7);
+  const wk = fRange(entries, wS, wE);
+  const weeklyTarget = settings.monthlyTarget / 4;
+  const todayMs = sod(now).getTime();
+  const days = [];
+  let weekEarned = 0, weekBookedFuture = 0, weekExpenses = 0;
+  let remainingDays = 0, remainingTargetSum = 0;
+  for(let i=0; i<7; i++){
+    const dS = new Date(wS); dS.setDate(dS.getDate()+i);
+    const dE = new Date(dS); dE.setDate(dE.getDate()+1);
+    const de = fRange(wk, dS, dE);
+    const earned = sumEarn(de), booked = sumBooked(de), expenses = sumExp(de);
+    const target = dailyTgt(dS, settings);
+    const isPast = dS.getTime() < todayMs;
+    const isToday = dS.getTime() === todayMs;
+    weekEarned += earned;
+    weekExpenses += expenses;
+    if(!isPast){ weekBookedFuture += booked; remainingDays++; remainingTargetSum += target; }
+    days.push({date:dS, entries:de, earned, booked, expenses, target, isPast, isToday, isFuture:dS.getTime()>todayMs, net:earned-expenses});
+  }
+  const projectedTotal = weekEarned + weekBookedFuture;
+  const weekGap = Math.max(0, weeklyTarget - projectedTotal);
+  const perDayShare = remainingDays > 0 ? weekGap / remainingDays : 0;
+  days.forEach(d => {
+    if(d.isPast){ d.driveNeeded = null; }
+    else {
+      const w = remainingTargetSum > 0 ? d.target / remainingTargetSum : 1/remainingDays;
+      d.driveNeeded = Math.max(0, weekGap * w - d.booked);
+    }
+  });
+  return {days, weeklyTarget, weekEarned, weekBookedFuture, weekExpenses, projectedTotal, weekGap, perDayShare, remainingDays, weekStart:wS, weekEnd:wE};
+};
+
+// ---------- UI Primitives ----------
+const Card = ({children, style, ...p}) => (
+  <div {...p} style={{background:C.card, border:`1px solid ${C.bord}`, borderRadius:14, ...style}}>{children}</div>
+);
+const Btn = ({children, onClick, variant='primary', style, disabled, ...rest}) => {
+  const V = {primary:{bg:C.text, c:C.bg, b:'transparent'}, secondary:{bg:C.bgE, c:C.text, b:C.border}, danger:{bg:'transparent', c:C.exp, b:C.exp+'55'}}[variant];
+  return <button onClick={onClick} disabled={disabled} style={{background:V.bg, color:V.c, border:`1px solid ${V.b}`, borderRadius:10, padding:'12px 18px', fontWeight:600, fontSize:15, cursor:disabled?'not-allowed':'pointer', opacity:disabled?0.5:1, transition:'all 0.15s', ...style}} {...rest}>{children}</button>;
+};
+const Lbl = ({children}) => (
+  <label style={{display:'block', fontSize:12, color:C.mid, marginBottom:6, fontWeight:500, letterSpacing:0.3, textTransform:'uppercase'}}>{children}</label>
+);
+const Input = ({label, value, onChange, type='text', placeholder, prefix, step, autoFocus}) => (
+  <div style={{marginBottom:16}}>
+    <Lbl>{label}</Lbl>
+    <div style={{display:'flex', alignItems:'center', background:C.bgE, border:`1px solid ${C.border}`, borderRadius:10}}>
+      {prefix && <span style={{padding:'0 0 0 14px', color:C.mid, fontWeight:600}}>{prefix}</span>}
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} step={step} autoFocus={autoFocus} className={type==='number'?'mono':''}
+        style={{flex:1, background:'transparent', border:'none', color:C.text, padding:'14px', fontSize:16, width:'100%'}}/>
+    </div>
+  </div>
+);
+const Select = ({label, value, onChange, options}) => (
+  <div style={{marginBottom:16}}>
+    <Lbl>{label}</Lbl>
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{width:'100%', background:C.bgE, border:`1px solid ${C.border}`, borderRadius:10, color:C.text, padding:'14px', fontSize:16, appearance:'none'}}>
+      {options.map(o => <option key={typeof o==='string'?o:o.id} value={typeof o==='string'?o:o.id}>{typeof o==='string'?o:o.label}</option>)}
+    </select>
+  </div>
+);
+const Toggle = ({label, value, onChange}) => (
+  <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 0', marginBottom:8}}>
+    <span style={{color:C.text, fontSize:15}}>{label}</span>
+    <button onClick={()=>onChange(!value)} style={{width:48, height:28, borderRadius:14, background:value?C.earn:C.border, border:'none', position:'relative', cursor:'pointer', transition:'background 0.2s'}}>
+      <div style={{position:'absolute', top:3, left:value?23:3, width:22, height:22, borderRadius:11, background:'#fff', transition:'left 0.2s'}}/>
+    </button>
+  </div>
+);
+const PaceBar = ({earned, target, accent}) => {
+  const pct = target>0 ? Math.min(1, earned/target) : 0;
+  const over = earned > target;
+  return <div style={{height:8, background:C.bord, borderRadius:4, overflow:'hidden'}}><div style={{height:'100%', width:(pct*100)+'%', background:over?C.earn:accent||C.pace, borderRadius:4, transition:'width 0.4s'}}/></div>;
+};
+const StackedBar = ({earned, booked, target}) => {
+  const ePct = target>0 ? Math.min(100, (earned/target)*100) : 0;
+  const bPct = target>0 ? Math.min(100-ePct, (booked/target)*100) : 0;
+  return <div style={{height:10, background:C.bord, borderRadius:5, overflow:'hidden', display:'flex'}}>
+    <div style={{height:'100%', width:ePct+'%', background:C.earn, transition:'width 0.4s'}}/>
+    <div style={{height:'100%', width:bPct+'%', background:C.music, opacity:0.65, transition:'width 0.4s'}}/>
+  </div>;
+};
+const TimeField = ({label, value, onChange, optional, accent}) => {
+  const has = !!value;
+  return <div style={{marginBottom:16}}>
+    <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6}}>
+      <label style={{fontSize:12, color:C.mid, fontWeight:500, letterSpacing:0.3, textTransform:'uppercase'}}>{label}{optional && !has?' (opt)':''}</label>
+      <div style={{display:'flex', gap:4}}>
+        <button onClick={()=>onChange(new Date().toISOString())} style={{background:'transparent', border:'none', color:accent||C.pace, fontSize:11, fontWeight:700, cursor:'pointer', padding:'2px 8px', letterSpacing:0.5}}>NOW</button>
+        {optional && has && <button onClick={()=>onChange(null)} style={{background:'transparent', border:'none', color:C.muted, fontSize:11, fontWeight:700, cursor:'pointer', padding:'2px 8px', letterSpacing:0.5}}>CLEAR</button>}
+      </div>
+    </div>
+    <input type="datetime-local" value={has?fmtDTL(value):''} onChange={e=>onChange(e.target.value?new Date(e.target.value).toISOString():null)}
+      style={{width:'100%', background:C.bgE, border:`1px solid ${C.border}`, borderRadius:10, color:has?C.text:C.muted, padding:'14px', fontSize:16, colorScheme:'dark'}}/>
+  </div>;
+};
+
+const accents = {flex:C.flex, delivery:C.earn, music:C.music, expense:C.exp};
+const titles = {flex:'Amazon Flex Block', delivery:'Delivery', music:'Music', expense:'Expense'};
+
+// ---------- Entry Form (unchanged from v1.4) ----------
+const EntryForm = ({kind, existing, settings, prefillDate, onSave, onClose, onDelete}) => {
+  const isEdit = !!existing;
+  const [form, setForm] = useState(() => {
+    if(existing) return {...existing, startTime: existing.startTime||existing.timestamp||new Date().toISOString(), endTime: existing.endTime||null};
+    let initStart;
+    if(prefillDate){ const d = new Date(prefillDate); d.setHours(kind==='music' ? 19 : 12, 0, 0, 0); initStart = d.toISOString(); }
+    else { initStart = new Date().toISOString(); }
+    const base = {kind, amount:'', startTime:initStart, endTime:null, notes:''};
+    if(kind==='flex') return {...base, station:settings.defaultStation, blockType:'Standard', freebie:false};
+    if(kind==='delivery') return {...base, platform:'uber', distanceMi:''};
+    if(kind==='music') { const future = prefillDate && isFutureDay(prefillDate); return {...base, musicType:'performance', venue:'', status: future ? 'booked' : 'paid'}; }
+    if(kind==='expense') return {...base, expenseType:'gas'};
+    return base;
+  });
+  const up = (k,v) => setForm(f=>({...f, [k]:v}));
+  const save = () => {
+    const amt = parseFloat(form.amount);
+    if(isNaN(amt)||amt<=0) return alert('Please enter a valid amount.');
+    if(!form.startTime) return alert('Start time is required.');
+    if(form.endTime && new Date(form.endTime)<=new Date(form.startTime)) return alert('End time must be after start time.');
+    const c = {...form, amount:amt};
+    if(form.distanceMi!==''&&form.distanceMi!=null) c.distanceMi = parseFloat(form.distanceMi)||null;
+    delete c.timestamp; delete c.durationMin;
+    onSave(c);
+  };
+  const dur = form.endTime&&form.startTime ? Math.max(0,(new Date(form.endTime)-new Date(form.startTime))/60000) : null;
+  const r = dur&&dur>=1&&form.amount ? (parseFloat(form.amount)/(dur/60)) : null;
+
+  return <div onClick={onClose} className="fI" style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:110, display:'flex', alignItems:'flex-end', justifyContent:'center'}}>
+    <div onClick={e=>e.stopPropagation()} className="sU nos" style={{background:C.bg, width:'100%', maxWidth:500, maxHeight:'92vh', overflowY:'auto', borderRadius:'20px 20px 0 0', padding:'12px 20px 32px', borderTop:`2px solid ${accents[kind]}`}}>
+      <div style={{display:'flex', justifyContent:'center', marginBottom:12}}><div style={{width:44, height:4, background:C.border, borderRadius:2}}/></div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
+        <h2 style={{margin:0, fontSize:22, fontWeight:700, color:C.text}}>{isEdit?'Edit':'New'} <span style={{color:accents[kind]}}>{titles[kind]}</span></h2>
+        <button onClick={onClose} style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer'}}><X size={24}/></button>
+      </div>
+      <Input label="Amount" type="number" step="0.01" value={form.amount} onChange={v=>up('amount',v)} prefix="$" placeholder="0.00" autoFocus={!isEdit}/>
+      <TimeField label="Start" value={form.startTime} onChange={v=>up('startTime', v||new Date().toISOString())} accent={accents[kind]}/>
+      {kind!=='expense' && <TimeField label="End" value={form.endTime} onChange={v=>up('endTime',v)} optional accent={accents[kind]}/>}
+      {dur!=null && <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', marginTop:-4, marginBottom:16, background:C.bgE, borderRadius:10, border:`1px solid ${C.bord}`}}>
+        <div style={{display:'flex', alignItems:'center', gap:8}}><Clock size={14} color={C.mid}/><span className="mono" style={{fontSize:13, color:C.text, fontWeight:600}}>{fmtDur(dur)||'—'}</span></div>
+        {r!=null && <span className="mono" style={{fontSize:13, color:accents[kind], fontWeight:700}}>{fmt$(r)}/hr</span>}
+      </div>}
+      {kind==='flex' && <>
+        <Select label="Station" value={form.station} onChange={v=>up('station',v)} options={STATIONS}/>
+        <Select label="Block Type" value={form.blockType} onChange={v=>up('blockType',v)} options={BLOCKS}/>
+        <Toggle label="Freebie / surged" value={form.freebie} onChange={v=>up('freebie',v)}/>
+      </>}
+      {kind==='delivery' && <>
+        <Select label="Platform" value={form.platform} onChange={v=>up('platform',v)} options={DPLAT}/>
+        <Input label="Miles (opt)" type="number" step="0.1" value={form.distanceMi||''} onChange={v=>up('distanceMi',v)}/>
+      </>}
+      {kind==='music' && <>
+        <Select label="Type" value={form.musicType} onChange={v=>up('musicType',v)} options={MTYPE}/>
+        <Input label="Venue / Client" value={form.venue||''} onChange={v=>up('venue',v)} placeholder="Optional"/>
+        <Select label="Status" value={form.status} onChange={v=>up('status',v)} options={[{id:'paid',label:'Paid'},{id:'pending',label:'Pending (counts toward total)'},{id:'booked',label:'Booked future gig (not yet earned)'}]}/>
+      </>}
+      {kind==='expense' && <Select label="Expense Type" value={form.expenseType} onChange={v=>up('expenseType',v)} options={ETYPE}/>}
+      <Input label="Notes (opt)" value={form.notes||''} onChange={v=>up('notes',v)} placeholder="Anything to remember"/>
+      <div style={{display:'flex', gap:10, marginTop:8}}>
+        {isEdit && <Btn variant="danger" onClick={()=>{if(confirm('Delete this entry?'))onDelete(existing.id)}} style={{flex:'0 0 auto'}}><Trash2 size={18}/></Btn>}
+        <Btn onClick={save} style={{flex:1, background:accents[kind], color:C.bg}}>{isEdit?'Save changes':'Save entry'}</Btn>
+      </div>
+    </div>
+  </div>;
+};
+
+const QuickAddSheet = ({onChoose, onClose, dateContext}) => {
+  const opts = [
+    {kind:'flex', label:'Amazon Flex', sub:'Block / route', color:C.flex, Icon:Activity},
+    {kind:'delivery', label:'Delivery', sub:'Uber / DD / GH', color:C.earn, Icon:Truck},
+    {kind:'music', label:'Music', sub:'Gig / teaching', color:C.music, Icon:Music},
+    {kind:'expense', label:'Expense', sub:'Gas / tolls / etc.', color:C.exp, Icon:Fuel}
+  ];
+  return <div onClick={onClose} className="fI" style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:105, display:'flex', alignItems:'flex-end', justifyContent:'center'}}>
+    <div onClick={e=>e.stopPropagation()} className="sU" style={{background:C.bg, width:'100%', maxWidth:500, borderRadius:'20px 20px 0 0', padding:'12px 20px 32px'}}>
+      <div style={{display:'flex', justifyContent:'center', marginBottom:16}}><div style={{width:44, height:4, background:C.border, borderRadius:2}}/></div>
+      <h2 style={{margin:'0 0 4px', fontSize:22, fontWeight:700}}>Quick Add</h2>
+      {dateContext && <div style={{fontSize:12, color:C.mid, marginBottom:16}}>for <span style={{color:C.text, fontWeight:600}}>{new Date(dateContext).toLocaleDateString('en-US',{weekday:'long', month:'short', day:'numeric'})}</span></div>}
+      {!dateContext && <div style={{height:14}}/>}
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+        {opts.map(o => {
+          const I = o.Icon;
+          return <button key={o.kind} onClick={()=>onChoose(o.kind)} style={{background:C.card, border:`1px solid ${C.border}`, borderLeft:`3px solid ${o.color}`, borderRadius:12, padding:'20px 16px', textAlign:'left', cursor:'pointer', color:C.text, display:'flex', flexDirection:'column', alignItems:'flex-start', gap:8}}>
+            <I size={22} color={o.color}/>
+            <div style={{fontWeight:700, fontSize:16}}>{o.label}</div>
+            <div style={{fontSize:12, color:C.mid}}>{o.sub}</div>
+          </button>;
+        })}
+      </div>
+    </div>
+  </div>;
+};
+
+const EntryRow = ({entry, onClick}) => {
+  const meta = {
+    flex:{color:C.flex, Icon:Activity, label:'Flex'},
+    delivery:{color:C.earn, Icon:Truck, label: entry.platform?DPLAT.find(p=>p.id===entry.platform)?.label:'Delivery'},
+    music:{color:C.music, Icon:Music, label: entry.musicType?MTYPE.find(m=>m.id===entry.musicType)?.label:'Music'},
+    expense:{color:C.exp, Icon:Fuel, label: entry.expenseType?ETYPE.find(e=>e.id===entry.expenseType)?.label:'Expense'}
+  }[entry.kind] || {color:C.exp, Icon:Fuel, label:'Expense'};
+  const I = meta.Icon;
+  const booked = entry.status==='booked';
+  const dur = getDur(entry);
+  const durStr = fmtDur(dur);
+  const open = entry.kind!=='expense' && !getEnd(entry) && !booked;
+  const hr = rate(entry);
+  return <button onClick={onClick} style={{width:'100%', background:C.card, border:`1px solid ${C.bord}`, borderLeft:`3px solid ${meta.color}`, borderRadius:10, padding:'12px 14px', display:'flex', alignItems:'center', gap:12, cursor:'pointer', marginBottom:6, textAlign:'left', color:C.text, opacity:booked?0.7:1}}>
+    <I size={18} color={meta.color} style={{flexShrink:0}}/>
+    <div style={{flex:1, minWidth:0}}>
+      <div style={{fontSize:14, fontWeight:600, display:'flex', gap:6, alignItems:'baseline', flexWrap:'wrap'}}>
+        <span>{meta.label}</span>
+        {entry.station && <span style={{fontSize:11, color:C.mid, fontWeight:500}}>{entry.station}</span>}
+        {entry.freebie && <span style={{fontSize:10, color:C.flex, fontWeight:700}}>★ SURGE</span>}
+        {booked && <span style={{fontSize:10, color:C.warn, fontWeight:700}}>BOOKED</span>}
+        {open && <span style={{fontSize:10, color:C.pace, fontWeight:700}}>● OPEN</span>}
+      </div>
+      <div style={{fontSize:12, color:C.mid, marginTop:2}}>
+        <span className="mono">{fmtTR(entry)}</span>
+        {durStr && <span> · {durStr}</span>}
+        {entry.venue && <span> · {entry.venue}</span>}
+        {entry.notes && <span> · {entry.notes.substring(0,24)}{entry.notes.length>24?'…':''}</span>}
+      </div>
+    </div>
+    <div style={{textAlign:'right'}}>
+      <div className="mono" style={{fontWeight:700, fontSize:16, color: entry.kind==='expense'?C.exp:meta.color}}>{entry.kind==='expense'?'−':''}{fmt$(entry.amount)}</div>
+      {hr!=null && entry.kind!=='expense' && <div className="mono" style={{fontSize:10, color:C.muted, marginTop:1}}>{fmt$(hr)}/hr</div>}
+    </div>
+  </button>;
+};
+
+const SourceChip = ({label, amount, color}) => (
+  <div style={{flex:1, background:C.card, border:`1px solid ${C.bord}`, borderTop:`2px solid ${color}`, borderRadius:10, padding:'10px 12px'}}>
+    <div style={{fontSize:10, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase'}}>{label}</div>
+    <div className="mono" style={{fontSize:16, fontWeight:700, color:amount>0?color:C.muted, marginTop:2}}>{fmt$(amount)}</div>
+  </div>
+);
+const SourceLine = ({label, amount, total, color, negative}) => {
+  const pct = total>0?Math.abs(amount)/total:0;
+  return <div style={{marginBottom:10}}>
+    <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4}}>
+      <span style={{fontSize:13, color:C.text, fontWeight:500}}>{label}</span>
+      <span className="mono" style={{fontSize:14, fontWeight:700, color:negative?C.exp:color}}>{negative?'−':''}{fmt$(Math.abs(amount))}</span>
+    </div>
+    <div style={{height:4, background:C.bord, borderRadius:2, overflow:'hidden'}}><div style={{height:'100%', width:(pct*100)+'%', background:color}}/></div>
+  </div>;
+};
+const PlanRow = ({label, amount, color, highlight, suffix}) => (
+  <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:highlight?2:6}}>
+    <span style={{fontSize: highlight?14:13, color: highlight?C.text:C.mid, fontWeight: highlight?700:500}}>{label}</span>
+    <span className="mono" style={{fontSize: highlight?22:14, fontWeight:700, color}}>{fmt$(amount)}{suffix && <span style={{fontSize:11, color:C.mid, fontWeight:500, marginLeft:4}}>{suffix}</span>}</span>
+  </div>
+);
+
+// ---------- Views ----------
+const TodayView = ({entries, settings, onEdit}) => {
+  const now = new Date();
+  const dS = sod(now); const dE = new Date(dS); dE.setDate(dE.getDate()+1);
+  const today = useMemo(()=>fRange(entries,dS,dE).sort((a,b)=>new Date(getStart(b))-new Date(getStart(a))), [entries,dS.getTime()]);
+  const gross = sumEarn(today), exp = sumExp(today), net = gross-exp;
+  const tgt = dailyTgt(now, settings);
+  const mS = som(now); const mE = new Date(now.getFullYear(), now.getMonth()+1, 1);
+  const moEntries = fRange(entries, mS, mE);
+  const monthEarn = sumEarn(moEntries);
+  const monthBooked = sumBooked(moEntries);
+  const monthProjected = monthEarn + monthBooked;
+  const diM = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const expMTD = settings.monthlyTarget * (now.getDate()/diM);
+  const monthPct = settings.monthlyTarget>0?monthProjected/settings.monthlyTarget:0;
+  const bd = useMemo(()=>{
+    const r = {delivery:0, flex:0, music:0};
+    today.filter(isCount).forEach(e=>{
+      if(e.kind==='flex') r.flex+=e.amount;
+      else if(e.kind==='delivery') r.delivery+=e.amount;
+      else if(e.kind==='music') r.music+=e.amount;
+    });
+    return r;
+  }, [today]);
+  const mins = useMemo(()=>today.filter(isCount).reduce((s,e)=>s+(getDur(e)||0),0), [today]);
+  const hr = mins>0?gross/(mins/60):null;
+
+  return <div style={{padding:'20px 16px'}}>
+    <div style={{fontSize:11, color:C.muted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:4}}>{now.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'})}</div>
+    <Card style={{padding:20, marginBottom:14}}>
+      <div style={{fontSize:12, color:C.mid, fontWeight:500, letterSpacing:0.5, textTransform:'uppercase'}}>Net today</div>
+      <div className="mono" style={{fontSize:44, fontWeight:700, color:net>=0?C.text:C.exp, lineHeight:1.1, margin:'4px 0 12px'}}>{fmt$(net)}</div>
+      <PaceBar earned={gross} target={tgt} accent={C.earn}/>
+      <div style={{display:'flex', justifyContent:'space-between', marginTop:6, fontSize:12, color:C.mid}}>
+        <span>{fmt$(gross)} earned · {fmt$(exp)} spent</span>
+        <span className="mono" style={{color:gross>=tgt?C.earn:C.mid}}>{Math.round((gross/tgt)*100)}% of {fmt$s(tgt)}</span>
+      </div>
+      {mins>0 && <div style={{display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:`1px solid ${C.bord}`, fontSize:12}}>
+        <span style={{color:C.mid}}><Clock size={11} style={{verticalAlign:'middle', marginRight:4}}/>{fmtDur(mins)} working</span>
+        {hr && <span className="mono" style={{color:C.earn, fontWeight:700}}>{fmt$(hr)}/hr avg</span>}
+      </div>}
+    </Card>
+    <Card style={{padding:16, marginBottom:14}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:10}}>
+        <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase'}}>Monthly pace · ${settings.monthlyTarget.toLocaleString()}</div>
+        <div className="mono" style={{fontSize:11, color:monthProjected>=expMTD?C.earn:C.warn, fontWeight:600}}>{monthProjected>=expMTD?'+':''}{fmt$s(monthProjected-expMTD)} vs pace</div>
+      </div>
+      <div className="mono" style={{fontSize:28, fontWeight:700, color:C.text}}>{fmt$(monthProjected)}<span style={{fontSize:14, color:C.mid, fontWeight:500}}> / {fmt$s(settings.monthlyTarget)}</span></div>
+      <div style={{marginTop:10}}><StackedBar earned={monthEarn} booked={monthBooked} target={settings.monthlyTarget}/></div>
+      <div style={{display:'flex', justifyContent:'space-between', marginTop:8, fontSize:11, color:C.mid}}>
+        <span><span style={{color:C.earn, fontWeight:600}}>{fmt$s(monthEarn)} earned</span>{monthBooked>0 && <span> · <span style={{color:C.music, fontWeight:600}}>+{fmt$s(monthBooked)} booked</span></span>}</span>
+        <span>Day {now.getDate()} of {diM} · {Math.round(monthPct*100)}%</span>
+      </div>
+    </Card>
+    {(bd.flex+bd.delivery+bd.music)>0 && <div style={{display:'flex', gap:8, marginBottom:14}}>
+      <SourceChip label="Flex" amount={bd.flex} color={C.flex}/>
+      <SourceChip label="Delivery" amount={bd.delivery} color={C.earn}/>
+      <SourceChip label="Music" amount={bd.music} color={C.music}/>
+    </div>}
+    <div style={{marginTop:18}}>
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:10, padding:'0 4px'}}>{today.length} {today.length===1?'entry':'entries'}</div>
+      {today.length===0 ? <Card style={{padding:28, textAlign:'center'}}>
+        <div style={{color:C.mid, fontSize:14}}>No entries yet today.</div>
+        <div style={{color:C.muted, fontSize:12, marginTop:4}}>Tap + below to log a block, delivery, gig, or expense.</div>
+      </Card> : today.map(e => <EntryRow key={e.id} entry={e} onClick={()=>onEdit(e)}/>)}
+    </div>
+  </div>;
+};
+
+const DayCard = ({day, expanded, onToggle, onEdit, onAdd}) => {
+  const {date, entries, earned, booked, target, isPast, isToday, driveNeeded} = day;
+  const dayLabel = DOW[date.getDay()];
+  const dateStr = date.toLocaleDateString('en-US',{month:'short', day:'numeric'});
+  const targetMet = earned >= target;
+  return <div>
+    <button onClick={onToggle} style={{width:'100%', background: isToday ? C.cardH : C.card, border: `1px solid ${isToday ? C.pace+'66' : C.bord}`, borderLeft: isToday ? `3px solid ${C.pace}` : `1px solid ${C.bord}`, borderRadius: 10, padding:'12px 14px', cursor:'pointer', textAlign:'left', color:C.text, display:'flex', alignItems:'center', gap:12, opacity: isPast && earned===0 && booked===0 ? 0.6 : 1}}>
+      <div style={{width:40, textAlign:'center', flexShrink:0}}>
+        <div style={{fontSize:11, color:isToday?C.pace:C.mid, fontWeight:700, letterSpacing:0.5}}>{dayLabel.toUpperCase()}</div>
+        <div className="mono" style={{fontSize:18, fontWeight:700, color: isToday ? C.pace : C.text}}>{date.getDate()}</div>
+      </div>
+      <div style={{flex:1, minWidth:0}}>
+        {isPast ? <>
+          <div className="mono" style={{fontSize:15, fontWeight:700, color: targetMet ? C.earn : C.text}}>{fmt$(earned)}{booked>0 && <span style={{fontSize:11, color:C.warn, marginLeft:6, fontWeight:600}}>+{fmt$s(booked)} unconverted</span>}</div>
+          <div style={{fontSize:11, color:C.mid, marginTop:2}}>{targetMet ? '✓ Hit target' : earned>0 ? `${Math.round((earned/target)*100)}% of ${fmt$s(target)}` : 'No entries'}</div>
+        </> : <>
+          <div style={{display:'flex', alignItems:'baseline', gap:8, flexWrap:'wrap'}}>
+            {earned > 0 && <span className="mono" style={{fontSize:14, fontWeight:700, color:C.earn}}>{fmt$(earned)}</span>}
+            {booked > 0 && <span className="mono" style={{fontSize:13, fontWeight:700, color:C.music}}><Music size={10} style={{verticalAlign:'middle', marginRight:2}}/>{fmt$(booked)}</span>}
+            {driveNeeded > 0 && <span className="mono" style={{fontSize:13, fontWeight:700, color:C.pace}}><Truck size={10} style={{verticalAlign:'middle', marginRight:2}}/>{fmt$(driveNeeded)}</span>}
+            {earned===0 && booked===0 && driveNeeded===0 && <span style={{fontSize:13, color:C.muted}}>—</span>}
+          </div>
+          <div style={{fontSize:11, color:C.mid, marginTop:3}}>{isToday ? 'Today' : dateStr}{' · '}target {fmt$s(target)}{entries.length>0 && ` · ${entries.length} ${entries.length===1?'entry':'entries'}`}</div>
+        </>}
+      </div>
+      <ChevronRight size={18} color={C.muted} style={{transform:expanded?'rotate(90deg)':'none', transition:'transform 0.2s', flexShrink:0}}/>
+    </button>
+    {expanded && <div style={{marginTop:6, marginLeft:12, marginBottom:8}}>
+      {entries.length > 0 && entries.sort((a,b)=>new Date(getStart(b))-new Date(getStart(a))).map(e=>(<EntryRow key={e.id} entry={e} onClick={()=>onEdit(e)}/>))}
+      {!isPast && <button onClick={(ev)=>{ev.stopPropagation(); onAdd(date);}} style={{width:'100%', background:'transparent', border:`1px dashed ${C.border}`, borderRadius:10, padding:'12px 14px', cursor:'pointer', color:C.music, fontSize:13, fontWeight:600, marginTop:entries.length>0?4:0, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+        <Music size={14}/> Add music gig on {dateStr}
+      </button>}
+    </div>}
+  </div>;
+};
+
+const WeekView = ({entries, settings, onEdit, onAddMusic}) => {
+  const now = new Date();
+  const plan = useMemo(()=>planWeek(entries, settings, now), [entries, settings.monthlyTarget, settings.weekStartsOn, settings.weekdayTarget, settings.weekendTarget, sod(now).getTime()]);
+  const {days, weeklyTarget, weekEarned, weekBookedFuture, weekExpenses, projectedTotal, weekGap, perDayShare, remainingDays, weekStart} = plan;
+  const [expanded, setExpanded] = useState(null);
+  const onTrack = projectedTotal >= weeklyTarget;
+  const weekMins = useMemo(()=>days.reduce((s,d)=>s+d.entries.filter(isCount).reduce((s2,e)=>s2+(getDur(e)||0),0),0), [days]);
+  const hr = weekMins>0 ? weekEarned/(weekMins/60) : null;
+
+  return <div style={{padding:'20px 16px'}}>
+    <div style={{fontSize:11, color:C.muted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:4}}>Week of {weekStart.toLocaleDateString('en-US',{month:'short', day:'numeric'})} · ${(settings.monthlyTarget/4).toFixed(0)} target</div>
+    <Card style={{padding:20, marginBottom:14, borderTop:`3px solid ${onTrack?C.earn:weekGap>0?C.pace:C.warn}`}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4}}>
+        <div style={{fontSize:12, color:C.mid, fontWeight:500, letterSpacing:0.5, textTransform:'uppercase'}}><Target size={11} style={{verticalAlign:'middle', marginRight:5}}/>Weekly plan</div>
+        <div className="mono" style={{fontSize:11, color: onTrack?C.earn:C.warn, fontWeight:700}}>{onTrack ? '✓ ON TRACK' : `${Math.round((projectedTotal/weeklyTarget)*100)}% PROJECTED`}</div>
+      </div>
+      <div style={{margin:'12px 0 14px'}}>
+        <StackedBar earned={weekEarned} booked={weekBookedFuture} target={weeklyTarget}/>
+        <div style={{display:'flex', justifyContent:'space-between', marginTop:6, fontSize:11}}>
+          <div style={{display:'flex', gap:10, color:C.mid}}>
+            <span><span style={{display:'inline-block', width:8, height:8, background:C.earn, borderRadius:1, marginRight:4, verticalAlign:'middle'}}/>earned</span>
+            <span><span style={{display:'inline-block', width:8, height:8, background:C.music, opacity:0.65, borderRadius:1, marginRight:4, verticalAlign:'middle'}}/>booked</span>
+          </div>
+          <span className="mono" style={{color:C.text, fontWeight:600}}>{fmt$(projectedTotal)} / {fmt$(weeklyTarget)}</span>
+        </div>
+      </div>
+      <div style={{paddingTop:14, borderTop:`1px solid ${C.bord}`}}>
+        <PlanRow label="Earned so far" amount={weekEarned} color={C.earn}/>
+        <PlanRow label="Booked music (future)" amount={weekBookedFuture} color={C.music}/>
+        <PlanRow label="Expenses" amount={-weekExpenses} color={C.exp}/>
+        <div style={{height:1, background:C.bord, margin:'10px 0'}}/>
+        {weekGap > 0 ? <>
+          <PlanRow label="Drive needed to hit target" amount={weekGap} color={C.pace} highlight/>
+          {remainingDays > 0 && <div style={{fontSize:12, color:C.mid, marginTop:4, textAlign:'right'}}>≈ <span className="mono" style={{color:C.text, fontWeight:700}}>{fmt$(perDayShare)}</span>/day across {remainingDays} remaining {remainingDays===1?'day':'days'}</div>}
+        </> : <PlanRow label={onTrack?"You're on track — drive optional":"Past week"} amount={0} color={C.earn} highlight suffix={projectedTotal>weeklyTarget?`+${fmt$s(projectedTotal-weeklyTarget)} over`:''}/>}
+      </div>
+      {hr && <div style={{marginTop:14, paddingTop:12, borderTop:`1px solid ${C.bord}`, display:'flex', justifyContent:'space-between', fontSize:12, color:C.mid}}>
+        <span><Clock size={11} style={{verticalAlign:'middle', marginRight:4}}/>{fmtDur(weekMins)} worked</span>
+        <span className="mono" style={{color:C.earn, fontWeight:700}}>{fmt$(hr)}/hr avg</span>
+      </div>}
+    </Card>
+    <div style={{display:'flex', flexDirection:'column', gap:6}}>
+      {days.map((d, i) => <DayCard key={i} day={d} expanded={expanded===i} onToggle={()=>setExpanded(expanded===i?null:i)} onEdit={onEdit} onAdd={onAddMusic}/>)}
+    </div>
+  </div>;
+};
+
+const MonthCell = ({cell, onClick}) => {
+  const {date, inMonth, isToday, earned, booked, target} = cell;
+  const total = earned + booked;
+  const hit = target > 0 && total >= target;
+  const intensity = target > 0 ? Math.min(1, total/target) : 0;
+  const bgAlpha = inMonth ? intensity * 0.22 : 0;
+  return <button onClick={inMonth ? onClick : undefined} disabled={!inMonth} style={{aspectRatio: '1 / 1.15', background: inMonth ? `rgba(0, 230, 118, ${bgAlpha})` : 'transparent', border: isToday ? `1.5px solid ${C.pace}` : `1px solid ${inMonth ? C.bord : 'transparent'}`, borderRadius: 8, padding: '5px 5px 4px', cursor: inMonth ? 'pointer' : 'default', color: inMonth ? C.text : C.muted, display:'flex', flexDirection:'column', alignItems:'stretch', justifyContent:'space-between', opacity: inMonth ? 1 : 0.25, position:'relative', overflow:'hidden'}}>
+    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+      <span style={{fontSize: 13, fontWeight: isToday?800:600, color: isToday?C.pace:'inherit', lineHeight:1}}>{date.getDate()}</span>
+      {booked > 0 && <Music size={10} color={C.music}/>}
+    </div>
+    {inMonth && (earned > 0 || booked > 0) && <div style={{textAlign:'right', lineHeight:1}}>
+      {earned > 0 && <div className="mono" style={{fontSize:10, fontWeight:700, color: hit?C.earn:C.text}}>{fmt$s(earned)}</div>}
+      {booked > 0 && <div className="mono" style={{fontSize:9, fontWeight:600, color:C.music, opacity:0.85, marginTop:earned>0?1:0}}>+{fmt$s(booked)}</div>}
+    </div>}
+  </button>;
+};
+
+const MonthView = ({entries, settings, onSelectDay}) => {
+  const [viewDate, setViewDate] = useState(new Date());
+  const now = new Date();
+  const mS = som(viewDate);
+  const mE = new Date(mS.getFullYear(), mS.getMonth()+1, 1);
+  const firstDow = (mS.getDay() - settings.weekStartsOn + 7) % 7;
+  const daysInMonth = new Date(mS.getFullYear(), mS.getMonth()+1, 0).getDate();
+  const rows = Math.ceil((firstDow + daysInMonth) / 7);
+  const gridStart = new Date(mS); gridStart.setDate(gridStart.getDate() - firstDow);
+  const gridEnd = new Date(gridStart); gridEnd.setDate(gridEnd.getDate() + rows*7);
+
+  const cells = useMemo(()=>{
+    const inGrid = fRange(entries, gridStart, gridEnd);
+    const byDay = {};
+    inGrid.forEach(e=>{ const k = sod(getStart(e)).getTime(); if(!byDay[k]) byDay[k] = []; byDay[k].push(e); });
+    const arr = [];
+    for(let i=0; i<rows*7; i++){
+      const d = new Date(gridStart); d.setDate(d.getDate()+i);
+      const de = byDay[sod(d).getTime()] || [];
+      arr.push({date:d, inMonth: d.getMonth()===mS.getMonth(), isToday: sameDay(d, now), earned: sumEarn(de), booked: sumBooked(de), target: dailyTgt(d, settings), count: de.length});
+    }
+    return arr;
+  }, [entries, gridStart.getTime(), rows, settings.weekdayTarget, settings.weekendTarget]);
+
+  const moEntries = useMemo(()=>fRange(entries, mS, mE), [entries, mS.getTime()]);
+  const moGross = sumEarn(moEntries);
+  const moBooked = sumBooked(moEntries);
+  const moExp = sumExp(moEntries);
+  const moNet = moGross - moExp;
+  const moProjected = moGross + moBooked;
+  const isCurrentMonth = mS.getMonth()===now.getMonth() && mS.getFullYear()===now.getFullYear();
+  const expMTD = isCurrentMonth ? settings.monthlyTarget * (now.getDate()/daysInMonth) : settings.monthlyTarget;
+  const daysWorked = useMemo(()=>{ const set = new Set(); moEntries.filter(isCount).forEach(e=>set.add(sod(getStart(e)).getTime())); return set.size; }, [moEntries]);
+  const mins = moEntries.filter(isCount).reduce((s,e)=>s+(getDur(e)||0),0);
+  const hr = mins>0 ? moGross/(mins/60) : null;
+  const bd = useMemo(()=>{
+    const r = {delivery:0, flex:0, music:0};
+    moEntries.filter(isCount).forEach(e=>{
+      if(e.kind==='flex') r.flex+=e.amount;
+      else if(e.kind==='delivery') r.delivery+=e.amount;
+      else if(e.kind==='music') r.music+=e.amount;
+    });
+    return r;
+  }, [moEntries]);
+
+  const prevMonth = () => { const d=new Date(viewDate); d.setMonth(d.getMonth()-1); setViewDate(d); };
+  const nextMonth = () => { const d=new Date(viewDate); d.setMonth(d.getMonth()+1); setViewDate(d); };
+  const goToday = () => setViewDate(new Date());
+
+  return <div style={{padding:'20px 16px'}}>
+    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
+      <button onClick={prevMonth} style={{background:C.card, border:`1px solid ${C.bord}`, borderRadius:8, color:C.text, padding:'8px 10px', cursor:'pointer'}}><ChevronLeft size={16}/></button>
+      <button onClick={goToday} style={{background:'transparent', border:'none', cursor:'pointer', color:C.text, textAlign:'center'}}>
+        <div style={{fontSize:18, fontWeight:700, lineHeight:1.1}}>{viewDate.toLocaleDateString('en-US',{month:'long'})}</div>
+        <div style={{fontSize:11, color:C.mid, marginTop:2}}>{viewDate.getFullYear()}{!isCurrentMonth && ' · tap for today'}</div>
+      </button>
+      <button onClick={nextMonth} style={{background:C.card, border:`1px solid ${C.bord}`, borderRadius:8, color:C.text, padding:'8px 10px', cursor:'pointer'}}><ChevronRight size={16}/></button>
+    </div>
+    <Card style={{padding:16, marginBottom:14}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
+        <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase'}}>{isCurrentMonth ? 'This month' : 'Total'}</div>
+        {isCurrentMonth && <div className="mono" style={{fontSize:11, color:moProjected>=expMTD?C.earn:C.warn, fontWeight:700}}>{moProjected>=expMTD?'+':''}{fmt$s(moProjected-expMTD)} vs pace</div>}
+      </div>
+      <div className="mono" style={{fontSize:32, fontWeight:700, color:C.text, lineHeight:1.1}}>{fmt$(moProjected)}<span style={{fontSize:14, color:C.mid, fontWeight:500}}> / {fmt$s(settings.monthlyTarget)}</span></div>
+      <div style={{marginTop:10}}><StackedBar earned={moGross} booked={moBooked} target={settings.monthlyTarget}/></div>
+      <div style={{display:'flex', justifyContent:'space-between', marginTop:6, fontSize:11, color:C.mid}}>
+        <span><span style={{color:C.earn, fontWeight:600}}>{fmt$s(moGross)} earned</span>{moBooked>0 && <span> · <span style={{color:C.music, fontWeight:600}}>+{fmt$s(moBooked)} booked</span></span>}</span>
+        <span className="mono">{Math.round((moProjected/settings.monthlyTarget)*100)}%</span>
+      </div>
+      <div style={{display:'flex', justifyContent:'space-between', marginTop:10, paddingTop:10, borderTop:`1px solid ${C.bord}`, fontSize:11, color:C.mid}}>
+        <span>Net <span className="mono" style={{color:moNet>=0?C.text:C.exp, fontWeight:700}}>{fmt$(moNet)}</span></span>
+        <span>{daysWorked} {daysWorked===1?'day':'days'} worked</span>
+        {hr && <span className="mono" style={{color:C.earn, fontWeight:700}}>{fmt$(hr)}/hr</span>}
+      </div>
+    </Card>
+    <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:4, marginBottom:6, padding:'0 2px'}}>
+      {Array.from({length:7}).map((_, i) => { const idx = (i + settings.weekStartsOn) % 7; return <div key={i} style={{textAlign:'center', fontSize:10, color:C.muted, fontWeight:700, letterSpacing:0.5}}>{DOW[idx].toUpperCase()}</div>; })}
+    </div>
+    <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:4, marginBottom:16}}>
+      {cells.map((c, i) => <MonthCell key={i} cell={c} onClick={()=>onSelectDay(c.date)}/>)}
+    </div>
+    {moGross > 0 && <Card style={{padding:16, marginBottom:14}}>
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:12}}>By source</div>
+      <SourceLine label="Amazon Flex" amount={bd.flex} total={moGross} color={C.flex}/>
+      <SourceLine label="Other Delivery" amount={bd.delivery} total={moGross} color={C.earn}/>
+      <SourceLine label="Music" amount={bd.music} total={moGross} color={C.music}/>
+      <SourceLine label="Expenses" amount={-moExp} total={moGross} color={C.exp} negative/>
+      {moBooked>0 && <div style={{marginTop:10, padding:'10px 12px', background:C.bgE, borderRadius:8, border:`1px dashed ${C.warn}55`}}>
+        <div style={{fontSize:11, color:C.warn, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase'}}>+ {fmt$(moBooked)} booked future</div>
+        <div style={{fontSize:11, color:C.mid, marginTop:2}}>Pre-scheduled music gigs · not yet earned</div>
+      </div>}
+    </Card>}
+    <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:14, padding:'8px 0', fontSize:11, color:C.muted}}>
+      <span style={{display:'flex', alignItems:'center', gap:5}}><span style={{width:10, height:10, background:`rgba(0,230,118,0.4)`, borderRadius:2}}/>earned</span>
+      <span style={{display:'flex', alignItems:'center', gap:5}}><Music size={11} color={C.music}/>booked music</span>
+      <span style={{display:'flex', alignItems:'center', gap:5}}><span style={{width:10, height:10, border:`1.5px solid ${C.pace}`, borderRadius:2}}/>today</span>
+    </div>
+  </div>;
+};
+
+const DayDetail = ({date, entries, settings, onEdit, onAdd, onClose}) => {
+  const dS = sod(date); const dE = new Date(dS); dE.setDate(dE.getDate()+1);
+  const dayEntries = useMemo(()=>fRange(entries, dS, dE).sort((a,b)=>new Date(getStart(b))-new Date(getStart(a))), [entries, dS.getTime()]);
+  const earned = sumEarn(dayEntries);
+  const booked = sumBooked(dayEntries);
+  const expenses = sumExp(dayEntries);
+  const net = earned - expenses;
+  const target = dailyTgt(date, settings);
+  const isPast = sod(date).getTime() < sod(new Date()).getTime();
+  const isToday = sameDay(date, new Date());
+  const dateStr = date.toLocaleDateString('en-US',{month:'short', day:'numeric'});
+  return <div onClick={onClose} className="fI" style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:100, display:'flex', alignItems:'flex-end', justifyContent:'center'}}>
+    <div onClick={e=>e.stopPropagation()} className="sU nos" style={{background:C.bg, width:'100%', maxWidth:500, maxHeight:'92vh', overflowY:'auto', borderRadius:'20px 20px 0 0', padding:'12px 20px 32px'}}>
+      <div style={{display:'flex', justifyContent:'center', marginBottom:12}}><div style={{width:44, height:4, background:C.border, borderRadius:2}}/></div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16}}>
+        <div>
+          <div style={{fontSize:11, color:isToday?C.pace:C.muted, fontWeight:700, letterSpacing:1, textTransform:'uppercase'}}>{isToday ? 'Today' : isPast ? 'Past day' : 'Upcoming'}</div>
+          <h2 style={{margin:'2px 0 0', fontSize:22, fontWeight:700, color:C.text}}>{date.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'})}</h2>
+        </div>
+        <button onClick={onClose} style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer'}}><X size={24}/></button>
+      </div>
+      <Card style={{padding:16, marginBottom:14}}>
+        <PlanRow label="Earned" amount={earned} color={earned>0?C.earn:C.mid}/>
+        {booked > 0 && <PlanRow label="Booked music" amount={booked} color={C.music}/>}
+        {expenses > 0 && <PlanRow label="Expenses" amount={-expenses} color={C.exp}/>}
+        <div style={{height:1, background:C.bord, margin:'10px 0'}}/>
+        {booked > 0 ? <>
+          <PlanRow label="Net so far" amount={net} color={net>=0?C.text:C.exp}/>
+          <PlanRow label="Projected" amount={earned + booked - expenses} color={C.pace} highlight/>
+        </> : <PlanRow label="Net" amount={net} color={net>=0?C.text:C.exp} highlight/>}
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginTop:8, fontSize:12, color:C.mid}}>
+          <span>Daily target: <span className="mono" style={{color:C.text, fontWeight:600}}>{fmt$(target)}</span></span>
+          {(earned + booked) >= target && <span style={{color:C.earn, fontWeight:700}}>✓ Hit target</span>}
+          {(earned + booked) > 0 && (earned + booked) < target && <span className="mono">{Math.round(((earned+booked)/target)*100)}%</span>}
+        </div>
+      </Card>
+      <Btn onClick={()=>onAdd(date)} style={{width:'100%', marginBottom:18, background:C.pace, color:C.bg}}>
+        <Plus size={16} style={{marginRight:6, verticalAlign:'middle'}}/>Add entry on {dateStr}
+      </Btn>
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:10}}>{dayEntries.length} {dayEntries.length===1?'entry':'entries'}</div>
+      {dayEntries.length === 0 ? <div style={{textAlign:'center', padding:'20px 0', color:C.muted, fontSize:13}}>No entries yet.{!isPast && ' Tap "Add entry" above to log a gig, block, or expense.'}</div> : dayEntries.map(e => <EntryRow key={e.id} entry={e} onClick={()=>onEdit(e)}/>)}
+    </div>
+  </div>;
+};
+
+const TrendsView = ({entries}) => {
+  const cut = new Date(); cut.setDate(cut.getDate()-60);
+  const recent = useMemo(()=>entries.filter(e=>isCount(e) && new Date(getStart(e))>=cut), [entries]);
+  const hourLabel = h => h===0?'12a':h===12?'12p':h<12?h+'a':(h-12)+'p';
+  const byHour = useMemo(()=>{
+    const b = Array.from({length:24},(_,h)=>({hour:h, amount:0, minutes:0}));
+    recent.forEach(e=>{ const h = new Date(getStart(e)).getHours(); b[h].amount += e.amount; const d = getDur(e); if(d) b[h].minutes += d; });
+    return b.map(x=>({...x, label:hourLabel(x.hour), rate:x.minutes>0?x.amount/(x.minutes/60):0}));
+  }, [recent]);
+  const hasRate = byHour.some(b=>b.minutes>0);
+  const byDow = useMemo(()=>{
+    const b = Array.from({length:7},(_,i)=>({day:i, amount:0}));
+    recent.forEach(e=>{ b[new Date(getStart(e)).getDay()].amount += e.amount; });
+    return b.map(x=>({...x, label:DOW[x.day]}));
+  }, [recent]);
+  const byPlat = useMemo(()=>{
+    const s = {Flex:0, 'Uber Eats':0, DoorDash:0, GrubHub:0, Music:0, Other:0};
+    recent.forEach(e=>{
+      if(e.kind==='flex') s.Flex+=e.amount;
+      else if(e.kind==='music') s.Music+=e.amount;
+      else if(e.kind==='delivery'){ const p = DPLAT.find(d=>d.id===e.platform); if(p && s[p.label]!=null) s[p.label]+=e.amount; else s.Other+=e.amount; }
+    });
+    return Object.entries(s).filter(([_,v])=>v>0).map(([n,v])=>({name:n, value:v}));
+  }, [recent]);
+  const platRates = useMemo(()=>{
+    const s = {};
+    recent.forEach(e=>{
+      const d = getDur(e); if(!d||d<1) return;
+      let k;
+      if(e.kind==='flex') k='Flex';
+      else if(e.kind==='music') k='Music';
+      else if(e.kind==='delivery'){ const p = DPLAT.find(x=>x.id===e.platform); k = p?p.label:'Other'; }
+      if(!k) return;
+      if(!s[k]) s[k]={amount:0, minutes:0};
+      s[k].amount += e.amount; s[k].minutes += d;
+    });
+    return Object.entries(s).map(([n,v])=>({name:n, rate:v.minutes>0?v.amount/(v.minutes/60):0})).sort((a,b)=>b.rate-a.rate);
+  }, [recent]);
+  const PC = [C.flex, C.earn, '#FF3008', '#F63440', C.music, C.pace];
+  const last30 = useMemo(()=>{
+    const arr = [], now = new Date();
+    for(let i=29;i>=0;i--){
+      const d = new Date(now); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
+      const nx = new Date(d); nx.setDate(nx.getDate()+1);
+      const de = entries.filter(e=>inRange(getStart(e),d,nx));
+      arr.push({date:(d.getMonth()+1)+'/'+d.getDate(), net:sumNet(de)});
+    }
+    return arr;
+  }, [entries]);
+  if(recent.length===0) return <div style={{padding:'40px 24px', textAlign:'center'}}>
+    <Activity size={36} color={C.muted} style={{margin:'0 auto 16px'}}/>
+    <div style={{color:C.text, fontSize:16, fontWeight:600, marginBottom:6}}>No trend data yet</div>
+    <div style={{color:C.mid, fontSize:13}}>Log a few days of entries and patterns will appear here.</div>
+  </div>;
+  const tip = {background:C.bgE, border:`1px solid ${C.border}`, borderRadius:8, fontSize:12};
+  const lbl = {color:C.mid};
+  return <div style={{padding:'20px 16px'}}>
+    <div style={{fontSize:11, color:C.muted, fontWeight:600, letterSpacing:1, textTransform:'uppercase', marginBottom:14}}>Last 60 days · {recent.length} entries</div>
+    <Card style={{padding:16, marginBottom:14}}>
+      <div style={{fontSize:13, color:C.text, fontWeight:600, marginBottom:4}}>By hour of day</div>
+      <div style={{fontSize:11, color:C.mid, marginBottom:12}}>Total earnings by clock hour</div>
+      <div style={{height:180}}><ResponsiveContainer><BarChart data={byHour} margin={{top:6,right:4,left:-20,bottom:0}}>
+        <CartesianGrid stroke={C.bord} vertical={false}/>
+        <XAxis dataKey="label" stroke={C.muted} fontSize={9} interval={2} tick={{fill:C.muted}}/>
+        <YAxis stroke={C.muted} fontSize={10} tick={{fill:C.muted}}/>
+        <Tooltip contentStyle={tip} formatter={v=>[fmt$(v),'Earnings']} labelStyle={lbl}/>
+        <Bar dataKey="amount" fill={C.earn} radius={[3,3,0,0]}/>
+      </BarChart></ResponsiveContainer></div>
+    </Card>
+    {hasRate && <Card style={{padding:16, marginBottom:14}}>
+      <div style={{fontSize:13, color:C.text, fontWeight:600, marginBottom:4}}>$/hr by hour of day</div>
+      <div style={{fontSize:11, color:C.mid, marginBottom:12}}>Effective hourly rate when working</div>
+      <div style={{height:180}}><ResponsiveContainer><BarChart data={byHour} margin={{top:6,right:4,left:-20,bottom:0}}>
+        <CartesianGrid stroke={C.bord} vertical={false}/>
+        <XAxis dataKey="label" stroke={C.muted} fontSize={9} interval={2} tick={{fill:C.muted}}/>
+        <YAxis stroke={C.muted} fontSize={10} tick={{fill:C.muted}}/>
+        <Tooltip contentStyle={tip} formatter={v=>[fmt$(v)+'/hr','Rate']} labelStyle={lbl}/>
+        <Bar dataKey="rate" fill={C.flex} radius={[3,3,0,0]}/>
+      </BarChart></ResponsiveContainer></div>
+    </Card>}
+    <Card style={{padding:16, marginBottom:14}}>
+      <div style={{fontSize:13, color:C.text, fontWeight:600, marginBottom:4}}>By day of week</div>
+      <div style={{fontSize:11, color:C.mid, marginBottom:12}}>Total earnings by weekday</div>
+      <div style={{height:160}}><ResponsiveContainer><BarChart data={byDow} margin={{top:6,right:4,left:-20,bottom:0}}>
+        <CartesianGrid stroke={C.bord} vertical={false}/>
+        <XAxis dataKey="label" stroke={C.muted} fontSize={11} tick={{fill:C.muted}}/>
+        <YAxis stroke={C.muted} fontSize={10} tick={{fill:C.muted}}/>
+        <Tooltip contentStyle={tip} formatter={v=>[fmt$(v),'Earnings']} labelStyle={lbl}/>
+        <Bar dataKey="amount" fill={C.pace} radius={[3,3,0,0]}/>
+      </BarChart></ResponsiveContainer></div>
+    </Card>
+    <Card style={{padding:16, marginBottom:14}}>
+      <div style={{fontSize:13, color:C.text, fontWeight:600, marginBottom:4}}>Last 30 days</div>
+      <div style={{fontSize:11, color:C.mid, marginBottom:12}}>Daily net</div>
+      <div style={{height:160}}><ResponsiveContainer><LineChart data={last30} margin={{top:6,right:10,left:-20,bottom:0}}>
+        <CartesianGrid stroke={C.bord} vertical={false}/>
+        <XAxis dataKey="date" stroke={C.muted} fontSize={10} interval={4} tick={{fill:C.muted}}/>
+        <YAxis stroke={C.muted} fontSize={10} tick={{fill:C.muted}}/>
+        <Tooltip contentStyle={tip} formatter={v=>[fmt$(v),'Net']} labelStyle={lbl}/>
+        <Line type="monotone" dataKey="net" stroke={C.earn} strokeWidth={2} dot={false}/>
+      </LineChart></ResponsiveContainer></div>
+    </Card>
+    <Card style={{padding:16, marginBottom:14}}>
+      <div style={{fontSize:13, color:C.text, fontWeight:600, marginBottom:4}}>By platform</div>
+      <div style={{fontSize:11, color:C.mid, marginBottom:12}}>Share of earnings</div>
+      <div style={{height:180, display:'flex', alignItems:'center'}}>
+        <div style={{flex:1, height:'100%'}}><ResponsiveContainer><PieChart>
+          <Pie data={byPlat} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={36} outerRadius={70} paddingAngle={2}>
+            {byPlat.map((_,i)=><Cell key={i} fill={PC[i%PC.length]}/>)}
+          </Pie>
+          <Tooltip contentStyle={tip} formatter={v=>fmt$(v)}/>
+        </PieChart></ResponsiveContainer></div>
+        <div style={{flex:1, fontSize:12}}>
+          {byPlat.map((p,i)=><div key={p.name} style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
+            <div style={{width:10, height:10, borderRadius:2, background:PC[i%PC.length]}}/>
+            <div style={{flex:1, color:C.text}}>{p.name}</div>
+            <div className="mono" style={{color:C.mid}}>{fmt$s(p.value)}</div>
+          </div>)}
+        </div>
+      </div>
+    </Card>
+    {platRates.length>0 && <Card style={{padding:16}}>
+      <div style={{fontSize:13, color:C.text, fontWeight:600, marginBottom:4}}>$/hr by platform</div>
+      <div style={{fontSize:11, color:C.mid, marginBottom:12}}>Where your time pays best</div>
+      {platRates.map((p,i)=>{
+        const max = Math.max(...platRates.map(r=>r.rate));
+        return <div key={p.name} style={{marginBottom:10}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4}}>
+            <span style={{fontSize:13, color:C.text, fontWeight:500}}>{p.name}</span>
+            <span className="mono" style={{fontSize:14, fontWeight:700, color:PC[i%PC.length]}}>{fmt$(p.rate)}/hr</span>
+          </div>
+          <div style={{height:4, background:C.bord, borderRadius:2, overflow:'hidden'}}><div style={{height:'100%', width:max>0?(p.rate/max*100)+'%':'0%', background:PC[i%PC.length]}}/></div>
+        </div>;
+      })}
+    </Card>}
+  </div>;
+};
+
+// ---------- Settings ----------
+const SettingsModal = ({settings, entries, syncState, onSignIn, onRefresh, onUpdate, onImportJSON, onClose, onClearAll}) => {
+  const [L, setL] = useState(settings);
+  const fileRef = useRef();
+
+  const apply = () => {
+    onUpdate({
+      monthlyTarget: parseFloat(L.monthlyTarget)||DEFAULTS.monthlyTarget,
+      weekdayTarget: parseFloat(L.weekdayTarget)||DEFAULTS.weekdayTarget,
+      weekendTarget: parseFloat(L.weekendTarget)||DEFAULTS.weekendTarget,
+      weekStartsOn: parseInt(L.weekStartsOn),
+      defaultStation: L.defaultStation
+    });
+    onClose();
+  };
+
+  const exportCSV = () => {
+    const h = ['start_time','end_time','duration_min','kind','amount','platform_or_type','station','block_type','freebie','venue','distance_mi','status','hourly_rate','notes'];
+    const rows = entries.map(e=>{
+      const d = getDur(e), r = rate(e);
+      return [getStart(e)||'', getEnd(e)||'', d!=null?d.toFixed(0):'', e.kind, e.amount, e.platform||e.musicType||e.expenseType||'', e.station||'', e.blockType||'', e.freebie?'yes':'', e.venue||'', e.distanceMi||'', e.status||(e.kind==='expense'?'':'paid'), r!=null?r.toFixed(2):'', (e.notes||'').replace(/"/g,'""')];
+    });
+    const csv = [h.join(','), ...rows.map(r=>r.map(v=>`"${v}"`).join(','))].join('\n');
+    const blob = new Blob([csv],{type:'text/csv'}); const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=`gig_tracker_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportJSON = () => {
+    const json = JSON.stringify({entries, settings, exportedAt:new Date().toISOString()}, null, 2);
+    const blob = new Blob([json],{type:'application/json'}); const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=`gig_tracker_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportFile = (e) => {
+    const f = e.target.files[0];
+    if(!f) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if(!data.entries || !Array.isArray(data.entries)) throw new Error('Invalid JSON: missing entries array');
+        if(!confirm(`Import ${data.entries.length} entries? This REPLACES all current data.`)) return;
+        onImportJSON(data.entries, data.settings || settings);
+      } catch(err) { alert('Import failed: ' + err.message); }
+    };
+    reader.readAsText(f);
+    e.target.value = '';
+  };
+
+  const copyWife = async () => {
+    const now = new Date();
+    const dS = sod(now); const dE = new Date(dS); dE.setDate(dE.getDate()+1);
+    const wS = sow(now, settings.weekStartsOn); const wE = new Date(wS); wE.setDate(wE.getDate()+7);
+    const mS = som(now); const mE = new Date(now.getFullYear(), now.getMonth()+1, 1);
+    const td = fRange(entries,dS,dE), wk = fRange(entries,wS,wE), mo = fRange(entries,mS,mE);
+    const tdG = sumEarn(td), tdE = sumExp(td);
+    const wkG = sumEarn(wk), wkE = sumExp(wk);
+    const moG = sumEarn(mo);
+    const diM = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    const expMTD = settings.monthlyTarget * (now.getDate()/diM);
+    const pace = moG - expMTD;
+    const pL = pace>=0?`+${fmt$(pace)} ahead`:`${fmt$(pace)} behind`;
+    const text = `Gig Update · ${now.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}\n\nTODAY: ${fmt$(tdG-tdE)} net\n  Earned ${fmt$(tdG)} · Spent ${fmt$(tdE)}\n\nTHIS WEEK: ${fmt$(wkG-wkE)} net\n  Earned ${fmt$(wkG)} · Spent ${fmt$(wkE)}\n\nTHIS MONTH: ${fmt$(moG)} of ${fmt$(settings.monthlyTarget)} target\n  ${pL} on pace · ${Math.round((moG/settings.monthlyTarget)*100)}% complete\n  Day ${now.getDate()} of ${diM}`;
+    try{await navigator.clipboard.writeText(text); alert('Summary copied. Paste anywhere.');}
+    catch{const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); alert('Summary copied.');}
+  };
+
+  return <div onClick={onClose} className="fI" style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:100, display:'flex', alignItems:'flex-start', justifyContent:'center', overflowY:'auto'}}>
+    <div onClick={e=>e.stopPropagation()} className="sU nos" style={{background:C.bg, width:'100%', maxWidth:500, minHeight:'100vh', padding:'20px 20px 60px', overflowY:'auto'}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24}}>
+        <h2 style={{margin:0, fontSize:22, fontWeight:700, color:C.text}}>Settings</h2>
+        <button onClick={onClose} style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer'}}><X size={24}/></button>
+      </div>
+
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:10}}>Google Sheets sync</div>
+      {syncState && syncState.signedIn ? (
+        <Card style={{padding:14, marginBottom:14}}>
+          <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:10}}>
+            <span style={{width:10, height:10, borderRadius:5, background: syncState.error?C.exp : syncState.syncing?C.pace : syncState.queued>0?C.warn : C.earn}}/>
+            <span style={{fontSize:14, color:C.text, fontWeight:600}}>
+              {syncState.error ? 'Sync error' : syncState.syncing ? 'Syncing…' : syncState.queued>0 ? `${syncState.queued} pending` : 'Synced to Google Sheets'}
+            </span>
+          </div>
+          <div style={{fontSize:12, color:C.mid, marginBottom:10}}>Signed in. Every entry pushes to your Sheet automatically. Tap refresh to pull updates from the Sheet.</div>
+          {syncState.error && <div style={{padding:'8px 10px', background:C.exp+'15', border:`1px solid ${C.exp}55`, borderRadius:6, fontSize:11, color:C.exp, marginBottom:10}}>{syncState.error}</div>}
+          <Btn variant="secondary" onClick={onRefresh} style={{width:'100%'}} disabled={syncState.syncing}>
+            <RefreshCw size={14} className={syncState.syncing?'spin':''} style={{marginRight:8, verticalAlign:'middle'}}/>Refresh from Sheet
+          </Btn>
+        </Card>
+      ) : (
+        <Card style={{padding:14, marginBottom:14}}>
+          <div style={{fontSize:13, color:C.mid, marginBottom:12, lineHeight:1.5}}>Sign in with Google to sync entries to your Sheet across devices and share with your wife.</div>
+          <Btn onClick={onSignIn} style={{width:'100%', background:C.pace, color:C.bg}}>Sign in with Google</Btn>
+        </Card>
+      )}
+
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', margin:'18px 0 10px'}}>Targets</div>
+      <Input label="Monthly combined target" type="number" value={L.monthlyTarget} onChange={v=>setL({...L, monthlyTarget:v})} prefix="$"/>
+      <div style={{fontSize:11, color:C.muted, marginTop:-10, marginBottom:14}}>Weekly target = monthly ÷ 4 = ${(parseFloat(L.monthlyTarget||0)/4).toFixed(0)}</div>
+      <div style={{display:'flex', gap:12}}>
+        <div style={{flex:1}}><Input label="Weekday target" type="number" value={L.weekdayTarget} onChange={v=>setL({...L, weekdayTarget:v})} prefix="$"/></div>
+        <div style={{flex:1}}><Input label="Weekend target" type="number" value={L.weekendTarget} onChange={v=>setL({...L, weekendTarget:v})} prefix="$"/></div>
+      </div>
+
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', margin:'18px 0 10px'}}>Preferences</div>
+      <Select label="Week starts on" value={String(L.weekStartsOn)} onChange={v=>setL({...L, weekStartsOn:v})} options={[{id:'0',label:'Sunday'},{id:'1',label:'Monday'}]}/>
+      <Select label="Default Flex station" value={L.defaultStation} onChange={v=>setL({...L, defaultStation:v})} options={STATIONS}/>
+      <Btn onClick={apply} style={{width:'100%', marginTop:8, marginBottom:24}}>Save Settings</Btn>
+
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:10}}>Share & backup</div>
+      <Btn variant="secondary" onClick={copyWife} style={{width:'100%', marginBottom:8}}><Copy size={16} style={{marginRight:8, verticalAlign:'middle'}}/>Copy today/week/month summary</Btn>
+      <Btn variant="secondary" onClick={exportCSV} style={{width:'100%', marginBottom:8}}><Download size={16} style={{marginRight:8, verticalAlign:'middle'}}/>Export all entries as CSV</Btn>
+      <Btn variant="secondary" onClick={exportJSON} style={{width:'100%', marginBottom:8}}><Download size={16} style={{marginRight:8, verticalAlign:'middle'}}/>Export full backup (JSON)</Btn>
+      <input ref={fileRef} type="file" accept=".json,application/json" style={{display:'none'}} onChange={handleImportFile}/>
+      <Btn variant="secondary" onClick={()=>fileRef.current?.click()} style={{width:'100%', marginBottom:24}}><Upload size={16} style={{marginRight:8, verticalAlign:'middle'}}/>Import JSON backup</Btn>
+
+      <div style={{fontSize:11, color:C.mid, fontWeight:600, letterSpacing:0.5, textTransform:'uppercase', marginBottom:10}}>Data</div>
+      <div style={{fontSize:13, color:C.mid, marginBottom:10}}>{entries.length} total {entries.length===1?'entry':'entries'} stored.</div>
+      <Btn variant="danger" onClick={()=>{if(confirm('Delete ALL entries permanently? Export a JSON backup first if you want a copy.')){onClearAll(); onClose();}}} style={{width:'100%'}}>
+        <Trash2 size={16} style={{marginRight:8, verticalAlign:'middle'}}/>Clear all data
+      </Btn>
+    </div>
+  </div>;
+};
+
+// ---------- TabBar + Header ----------
+const TabBar = ({tab, onChange, onAdd}) => {
+  const T = [
+    {id:'today', label:'Today', Icon:Home},
+    {id:'week', label:'Plan', Icon:Calendar},
+    {id:'add', label:'', Icon:Plus, isAdd:true},
+    {id:'month', label:'Month', Icon:CalendarDays},
+    {id:'trends', label:'Trends', Icon:TrendingUp}
+  ];
+  return <div style={{position:'fixed', bottom:0, left:0, right:0, background:C.bgE, borderTop:`1px solid ${C.bord}`, paddingBottom:'env(safe-area-inset-bottom)', zIndex:50}}>
+    <div style={{display:'flex', justifyContent:'space-around', alignItems:'center', maxWidth:500, margin:'0 auto', padding:'8px 4px'}}>
+      {T.map(t => {
+        const I = t.Icon;
+        const active = tab===t.id && !t.isAdd;
+        if(t.isAdd) return <button key={t.id} onClick={onAdd} style={{width:56, height:56, borderRadius:28, background:C.text, color:C.bg, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 20px rgba(0,230,118,0.25)', marginTop:-20}}><I size={26} strokeWidth={2.5}/></button>;
+        return <button key={t.id} onClick={()=>onChange(t.id)} style={{background:'transparent', border:'none', color:active?C.text:C.muted, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:2, padding:'8px 12px', flex:1}}>
+          <I size={20} strokeWidth={active?2.5:2}/>
+          <span style={{fontSize:10, fontWeight:active?700:500, letterSpacing:0.3}}>{t.label}</span>
+        </button>;
+      })}
+    </div>
+  </div>;
+};
+
+const Header = ({onSettings, syncState, onSignIn, onRefresh}) => {
+  const {signedIn, syncing, error, queued} = syncState;
+  let dotColor = C.muted, label = 'Local';
+  if(signedIn){
+    if(error){ dotColor = C.exp; label = 'Sync error'; }
+    else if(syncing){ dotColor = C.pace; label = 'Syncing'; }
+    else if(queued>0){ dotColor = C.warn; label = `${queued} pending`; }
+    else { dotColor = C.earn; label = 'Synced'; }
+  }
+  return <div style={{position:'sticky', top:0, zIndex:40, background:C.bg+'F0', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', borderBottom:`1px solid ${C.bord}`, paddingTop:'env(safe-area-inset-top)'}}>
+    <div style={{maxWidth:500, margin:'0 auto', padding:'14px 16px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+      <div style={{display:'flex', alignItems:'baseline', gap:8}}>
+        <div style={{fontSize:18, fontWeight:800, letterSpacing:-0.5, color:C.text}}>GIG<span style={{color:C.earn}}>·</span>OPS</div>
+        <div style={{fontSize:10, color:C.muted, fontWeight:600, letterSpacing:1}}>v4.0</div>
+      </div>
+      <div style={{display:'flex', alignItems:'center', gap:2}}>
+        {!signedIn && <button onClick={onSignIn} style={{background:C.pace, color:C.bg, border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:700, cursor:'pointer', marginRight:4}}>SIGN IN</button>}
+        {signedIn && <button onClick={onRefresh} title="Refresh from Sheet" style={{background:'transparent', border:'none', color:C.mid, cursor:'pointer', padding:6}}><RefreshCw size={16} className={syncing?'spin':''}/></button>}
+        <button onClick={onSettings} title={label} style={{background:'transparent', border:'none', cursor:'pointer', padding:6, display:'flex', alignItems:'center', gap:6}}>
+          <span style={{width:8, height:8, borderRadius:4, background:dotColor, display:'inline-block'}}/>
+          <SettingsIcon size={22} style={{color:C.mid}}/>
+        </button>
+      </div>
+    </div>
+  </div>;
+};
+
+// ---------- Main App ----------
+const App = () => {
+  const [data, setData] = useState({entries:[], settings:DEFAULTS});
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState('today');
+  const [showAdd, setShowAdd] = useState(false);
+  const [newKind, setNewKind] = useState(null);
+  const [prefillDate, setPrefillDate] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
+  // Sync state
+  const [signedIn, setSignedIn] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const queueRef = useRef([]);
+  useEffect(()=>{ queueRef.current = queue; saveQueue(queue); }, [queue]);
+
+  // Initial load + attempt silent sign-in
+  useEffect(()=>{(async()=>{
+    const cache = await loadCache();
+    setData(cache);
+    setQueue(loadQueue());
+    setLoaded(true);
+    // Attempt silent sign-in
+    try {
+      setSyncing(true);
+      await requestToken(false); // non-interactive
+      setSignedIn(true);
+      await pullFromSheet();
+      setSyncError(null);
+    } catch(e){
+      // Silent sign-in failed — user needs to click Sign In. Stay in local-only mode.
+      setSignedIn(false);
+    } finally { setSyncing(false); }
+  })()}, []);
+
+  // Persist whenever data changes
+  useEffect(()=>{ if(loaded) saveCache(data); }, [data, loaded]);
+
+  // Pull from Sheet: merge entries (Sheet wins on conflict by updatedAt), replace settings from Sheet
+  const pullFromSheet = useCallback(async () => {
+    await ensureStructure();
+    const remote = await sheetsListAll();
+    setData(d => {
+      // Merge: union by id, prefer the one with later updatedAt
+      const map = new Map();
+      d.entries.forEach(e => map.set(e.id, e));
+      remote.entries.forEach(re => {
+        const local = map.get(re.id);
+        if(!local) { map.set(re.id, re); return; }
+        const lu = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+        const ru = re.updatedAt ? new Date(re.updatedAt).getTime() : 0;
+        map.set(re.id, ru >= lu ? re : local);
+      });
+      const mergedEntries = Array.from(map.values());
+      const mergedSettings = Object.keys(remote.settings).length>0 ? {...DEFAULTS, ...remote.settings} : d.settings;
+      return { entries: mergedEntries, settings: mergedSettings };
+    });
+  }, []);
+
+  // Push any entry not yet in Sheet (used to flush local-only entries after first sign-in)
+  const flushLocalOnly = useCallback(async () => {
+    // For simplicity, we rely on queue draining; nothing extra here.
+  }, []);
+
+  // Queue management
+  const enqueue = useCallback((op) => {
+    const next = [...queueRef.current, {...op, ts: Date.now()}];
+    setQueue(next);
+    queueRef.current = next;
+    drainQueue();
+  }, []);
+  const drainQueue = useCallback(async () => {
+    if(!signedIn) return;
+    if(queueRef.current.length === 0) return;
+    setSyncing(true); setSyncError(null);
+    try {
+      let q = [...queueRef.current];
+      while(q.length > 0){
+        const op = q[0];
+        try {
+          if(op.type === 'add') await sheetsAppend(op.entry);
+          else if(op.type === 'update') await sheetsUpdate(op.entry);
+          else if(op.type === 'delete') await sheetsDelete(op.id);
+          else if(op.type === 'settings') await sheetsWriteSettings(op.settings);
+        } catch(e) {
+          // If 401, try re-auth once
+          if(String(e.message).includes('Auth expired')){
+            try { await requestToken(false); continue; }
+            catch { setSignedIn(false); throw e; }
+          }
+          throw e;
+        }
+        q = q.slice(1);
+        setQueue(q); queueRef.current = q;
+      }
+    } catch(e) {
+      setSyncError(String(e.message||e));
+    } finally { setSyncing(false); }
+  }, [signedIn]);
+
+  // Retry queue drain when signedIn flips to true
+  useEffect(()=>{ if(signedIn) drainQueue(); }, [signedIn, drainQueue]);
+
+  // Mutations
+  const addEntry = (e) => {
+    const now = new Date().toISOString();
+    const entry = {...e, id: e.id || newId(), createdAt: now, updatedAt: now};
+    setData(d => ({...d, entries: [...d.entries, entry]}));
+    if(signedIn) enqueue({type:'add', entry});
+  };
+  const updateEntry = (id, u) => {
+    const now = new Date().toISOString();
+    let updated;
+    setData(d => ({...d, entries: d.entries.map(e => { if(e.id===id){ updated = {...e, ...u, id, updatedAt:now}; return updated; } return e; })}));
+    if(updated && signedIn) enqueue({type:'update', entry: updated});
+  };
+  const deleteEntry = (id) => {
+    setData(d => ({...d, entries: d.entries.filter(e => e.id !== id)}));
+    setEditing(null);
+    if(signedIn) enqueue({type:'delete', id});
+  };
+  const updateSettings = (s) => {
+    let next;
+    setData(d => { next = {...d.settings, ...s}; return {...d, settings: next}; });
+    if(signedIn) enqueue({type:'settings', settings: next});
+  };
+  const handleImportJSON = (entries, settings) => {
+    setData({entries, settings});
+    if(signedIn){
+      // Queue full re-sync: settings, then each entry as add (sheet may have orphans, but for simplicity we just upsert)
+      entries.forEach(entry => enqueue({type:'update', entry}));
+      enqueue({type:'settings', settings});
+    }
+    alert('Imported ' + entries.length + ' entries.');
+  };
+
+  // Sign-in
+  const handleSignIn = async () => {
+    setSyncing(true); setSyncError(null);
+    try {
+      await requestToken(true); // interactive
+      setSignedIn(true);
+      await pullFromSheet();
+    } catch(e) {
+      setSyncError(String(e.message||e));
+    } finally { setSyncing(false); }
+  };
+  const handleRefresh = async () => {
+    if(!signedIn) return;
+    setSyncing(true); setSyncError(null);
+    try { await pullFromSheet(); } catch(e){ setSyncError(String(e.message||e)); } finally { setSyncing(false); }
+  };
+
+  const handleAddMusicForDay = (date) => { setPrefillDate(date); setNewKind('music'); };
+  const handleAddFromDayDetail = (date) => { setPrefillDate(date); setShowAdd(true); };
+  const handleMainAdd = () => { setPrefillDate(null); setShowAdd(true); };
+  const closeForm = () => { setNewKind(null); setPrefillDate(null); };
+
+  const syncState = { signedIn, syncing, error: syncError, queued: queue.length };
+
+  if(!loaded) return <><style>{FONT}</style><div style={{background:C.bg, color:C.mid, minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'"DM Sans",sans-serif'}}>Loading…</div></>;
+
+  return <>
+    <style>{FONT}</style>
+    <div style={{background:C.bg, color:C.text, minHeight:'100vh', fontFamily:'"DM Sans",system-ui,sans-serif'}}>
+      <Header onSettings={()=>setShowSettings(true)} syncState={syncState} onSignIn={handleSignIn} onRefresh={handleRefresh}/>
+      {syncError && <div style={{background:C.exp+'22', borderBottom:`1px solid ${C.exp}55`, color:C.exp, padding:'10px 16px', fontSize:12, textAlign:'center'}}>Sync error: {syncError}</div>}
+      <main style={{paddingBottom:100, maxWidth:500, margin:'0 auto'}}>
+        {tab==='today' && <TodayView entries={data.entries} settings={data.settings} onEdit={setEditing}/>}
+        {tab==='week' && <WeekView entries={data.entries} settings={data.settings} onEdit={setEditing} onAddMusic={handleAddMusicForDay}/>}
+        {tab==='month' && <MonthView entries={data.entries} settings={data.settings} onSelectDay={setSelectedDay}/>}
+        {tab==='trends' && <TrendsView entries={data.entries}/>}
+      </main>
+      <TabBar tab={tab} onChange={setTab} onAdd={handleMainAdd}/>
+      {selectedDay && <DayDetail date={selectedDay} entries={data.entries} settings={data.settings} onEdit={e=>{setSelectedDay(null); setEditing(e);}} onAdd={handleAddFromDayDetail} onClose={()=>setSelectedDay(null)}/>}
+      {showAdd && <QuickAddSheet dateContext={prefillDate} onChoose={k=>{setShowAdd(false); setNewKind(k);}} onClose={()=>{setShowAdd(false); if(!selectedDay) setPrefillDate(null);}}/>}
+      {newKind && <EntryForm kind={newKind} settings={data.settings} prefillDate={prefillDate} onSave={e=>{addEntry(e); closeForm();}} onClose={closeForm}/>}
+      {editing && <EntryForm kind={editing.kind} existing={editing} settings={data.settings} onSave={e=>{updateEntry(editing.id, e); setEditing(null);}} onClose={()=>setEditing(null)} onDelete={deleteEntry}/>}
+      {showSettings && <SettingsModal settings={data.settings} entries={data.entries} syncState={syncState} onSignIn={handleSignIn} onRefresh={handleRefresh} onUpdate={updateSettings} onImportJSON={handleImportJSON} onClearAll={()=>setData({entries:[], settings:DEFAULTS})} onClose={()=>setShowSettings(false)}/>}
+    </div>
+  </>;
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+</script>
+</body>
+</html>
