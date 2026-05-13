@@ -1255,74 +1255,86 @@ const App = () => {
     // For simplicity, we rely on queue draining; nothing extra here.
   }, []);
 
-  // Queue management
-  const enqueue = useCallback((op) => {
-    const next = [...queueRef.current, {...op, ts: Date.now()}];
-    setQueue(next);
-    queueRef.current = next;
-    drainQueue();
-  }, []);
-  const drainQueue = useCallback(async () => {
-    if(!signedIn) return;
-    if(queueRef.current.length === 0) return;
-    setSyncing(true); setSyncError(null);
+  // Push a single op directly. If signed out or push fails, add to retry queue.
+  // Defined inline (no useCallback) so it always has fresh state references.
+  const pushOp = async (op) => {
+    if(!signedIn){
+      const next = [...queueRef.current, op];
+      setQueue(next); queueRef.current = next;
+      return;
+    }
+    setSyncing(true);
     try {
+      if(op.type === 'add') await sheetsAppend(op.entry);
+      else if(op.type === 'update') await sheetsUpdate(op.entry);
+      else if(op.type === 'delete') await sheetsDelete(op.id);
+      else if(op.type === 'settings') await sheetsWriteSettings(op.settings);
+      setSyncError(null);
+    } catch(e) {
+      setSyncError(String(e.message||e));
+      const next = [...queueRef.current, op];
+      setQueue(next); queueRef.current = next;
+      if(String(e.message||'').includes('Auth expired')) setSignedIn(false);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Drain the queue whenever we have items AND we're signed in
+  useEffect(()=>{
+    if(!signedIn || queue.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      setSyncing(true); setSyncError(null);
       let q = [...queueRef.current];
-      while(q.length > 0){
+      while(q.length > 0 && !cancelled){
         const op = q[0];
         try {
           if(op.type === 'add') await sheetsAppend(op.entry);
           else if(op.type === 'update') await sheetsUpdate(op.entry);
           else if(op.type === 'delete') await sheetsDelete(op.id);
           else if(op.type === 'settings') await sheetsWriteSettings(op.settings);
+          q = q.slice(1);
+          if(!cancelled){ setQueue(q); queueRef.current = q; }
         } catch(e) {
-          // If 401, try re-auth once
-          if(String(e.message).includes('Auth expired')){
-            try { await requestToken(false); continue; }
-            catch { setSignedIn(false); throw e; }
-          }
-          throw e;
+          if(!cancelled) setSyncError(String(e.message||e));
+          break;
         }
-        q = q.slice(1);
-        setQueue(q); queueRef.current = q;
       }
-    } catch(e) {
-      setSyncError(String(e.message||e));
-    } finally { setSyncing(false); }
-  }, [signedIn]);
-
-  // Retry queue drain when signedIn flips to true
-  useEffect(()=>{ if(signedIn) drainQueue(); }, [signedIn, drainQueue]);
+      if(!cancelled) setSyncing(false);
+    })();
+    return ()=>{ cancelled = true; };
+  }, [signedIn, queue.length]);
 
   // Mutations
   const addEntry = (e) => {
     const now = new Date().toISOString();
     const entry = {...e, id: e.id || newId(), createdAt: now, updatedAt: now};
     setData(d => ({...d, entries: [...d.entries, entry]}));
-    if(signedIn) enqueue({type:'add', entry});
+    pushOp({type:'add', entry});
   };
   const updateEntry = (id, u) => {
     const now = new Date().toISOString();
     let updated;
     setData(d => ({...d, entries: d.entries.map(e => { if(e.id===id){ updated = {...e, ...u, id, updatedAt:now}; return updated; } return e; })}));
-    if(updated && signedIn) enqueue({type:'update', entry: updated});
+    if(updated) pushOp({type:'update', entry: updated});
   };
   const deleteEntry = (id) => {
     setData(d => ({...d, entries: d.entries.filter(e => e.id !== id)}));
     setEditing(null);
-    if(signedIn) enqueue({type:'delete', id});
+    pushOp({type:'delete', id});
   };
   const updateSettings = (s) => {
     let next;
     setData(d => { next = {...d.settings, ...s}; return {...d, settings: next}; });
-    if(signedIn) enqueue({type:'settings', settings: next});
+    pushOp({type:'settings', settings: next});
   };
   const handleImportJSON = (entries, settings) => {
     setData({entries, settings});
     if(signedIn){
       // Queue full re-sync: settings, then each entry as add (sheet may have orphans, but for simplicity we just upsert)
-      entries.forEach(entry => enqueue({type:'update', entry}));
-      enqueue({type:'settings', settings});
+      entries.forEach(entry => pushOp({type:'update', entry}));
+      pushOp({type:'settings', settings});
     }
     alert('Imported ' + entries.length + ' entries.');
   };
